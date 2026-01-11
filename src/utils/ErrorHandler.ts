@@ -140,28 +140,56 @@ export function errorHandler(options: ErrorHandlerOptions = {}): MiddlewareHandl
         options.onError(error as Error, req);
       }
 
-      if (error instanceof CanxError) {
-        const response: Record<string, unknown> = {
-          error: {
-            code: error.code,
-            message: error.message,
-            ...(error.details && { details: error.details }),
-            ...(showStack && { stack: error.stack }),
-          },
-        };
+      const isJson = req.header('accept')?.includes('application/json') ?? true; // Default to JSON
+      
+      let statusCode = 500;
+      let errorResponse: any = {
+        code: 'INTERNAL_ERROR',
+        message: 'Internal server error',
+      };
 
-        return res.status(error.statusCode).json(response);
+      if (error instanceof CanxError) {
+        statusCode = error.statusCode;
+        errorResponse = {
+          code: error.code,
+          message: error.message,
+          ...(error.details && { details: error.details }),
+        };
+      } else {
+         const unknownError = error as Error;
+         errorResponse.message = showStack ? unknownError.message : 'Internal server error';
       }
 
-      // Handle unknown errors
-      const unknownError = error as Error;
-      return res.status(500).json({
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: showStack ? unknownError.message : 'Internal server error',
-          ...(showStack && { stack: unknownError.stack }),
-        },
-      });
+      if (showStack && error instanceof Error) {
+        errorResponse.stack = error.stack;
+      }
+
+      if (isJson) {
+        return res.status(statusCode).json({ error: errorResponse });
+      } else {
+        // Fallback HTML error page
+        const html = `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Error ${statusCode}</title>
+              <style>
+                body { font-family: system-ui, sans-serif; padding: 2rem; max-width: 800px; margin: 0 auto; }
+                .error-box { background: #fee2e2; color: #991b1b; padding: 1.5rem; border-radius: 0.5rem; }
+                pre { background: #f1f5f9; padding: 1rem; overflow-x: auto; border-radius: 0.5rem; }
+              </style>
+            </head>
+            <body>
+              <h1>Error ${statusCode}</h1>
+              <div class="error-box">
+                <p><strong>${errorResponse.code}</strong>: ${errorResponse.message}</p>
+              </div>
+              ${showStack && errorResponse.stack ? `<pre>${errorResponse.stack}</pre>` : ''}
+            </body>
+          </html>
+        `;
+        return res.status(statusCode).html(html);
+      }
     }
   };
 }

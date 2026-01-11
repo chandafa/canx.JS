@@ -9,7 +9,19 @@
 // ============================================
 export { Server, createCanxRequest, createCanxResponse } from './core/Server';
 export { Router, createRouter } from './core/Router';
+// ============================================
+// Middleware Exports
+// ============================================
 export { MiddlewarePipeline, cors, logger, bodyParser, rateLimit, compress, createMiddlewarePipeline } from './core/Middleware';
+export { security } from './middlewares/SecurityMiddleware';
+export { rateLimit as rateLimitMiddleware } from './middlewares/RateLimitMiddleware';
+export { validateSchema } from './middlewares/ValidationMiddleware';
+
+// ============================================
+// Schema / Validation Exports
+// ============================================
+export { z, Schema as ZSchema } from './schema/Schema';
+export type { Infer } from './schema/Schema';
 
 // ============================================
 // MVC Exports

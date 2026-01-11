@@ -76,8 +76,15 @@ export class Canx implements CanxApplication {
   /**
    * Start the server
    */
-  async listen(port?: number, callback?: () => void): Promise<void> {
-    if (port) this.config.port = port;
+  async listen(port?: number | (() => void), callback?: () => void): Promise<void> {
+    if (typeof port === 'function') {
+      callback = port;
+      port = undefined;
+    }
+
+    if (port && typeof port === 'number') {
+      this.config.port = port;
+    }
 
     // Initialize plugins
     for (const plugin of this.plugins) {

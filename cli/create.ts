@@ -402,12 +402,13 @@ Next steps:
 }
 
 // CLI entry
-const args = process.argv.slice(2);
-const projectName = args.find(arg => !arg.startsWith('-'));
-const template = args.includes('--api') ? 'api' : args.includes('--micro') ? 'microservice' : 'mvc';
+if (import.meta.main) {
+  const args = process.argv.slice(2);
+  const projectName = args.find(arg => !arg.startsWith('-'));
+  const template = args.includes('--api') ? 'api' : args.includes('--micro') ? 'microservice' : 'mvc';
 
-function showHelp() {
-  console.log(`
+  function showHelp() {
+    console.log(`
 CanxJS CLI - Project Scaffolding
 
 Usage:
@@ -423,11 +424,14 @@ Examples:
   bunx create-canx my-api --api
   bunx create-canx my-service --micro
 `);
+  }
+
+  if (args.includes('--help') || args.includes('-h') || !projectName) {
+    showHelp();
+    process.exit(0);
+  }
+
+  createProject(projectName, template);
 }
 
-if (args.includes('--help') || args.includes('-h') || !projectName) {
-  showHelp();
-  process.exit(0);
-}
-
-createProject(projectName, template);
+export { createProject };

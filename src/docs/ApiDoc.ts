@@ -77,25 +77,33 @@ export function ApiParam(param: ApiParameter): MethodDecorator {
   };
 }
 
-export function ApiBody(schema: ApiSchema, required = true): MethodDecorator {
+import { Schema } from '../schema/Schema';
+
+export function ApiBody(schema: ApiSchema | Schema<any>, required = true): MethodDecorator {
   return (target: any, propertyKey: string | symbol) => {
     if (!apiMetadata.has(target)) apiMetadata.set(target, new Map());
     const meta = apiMetadata.get(target)!;
     const existing = meta.get(String(propertyKey)) || {} as ApiEndpoint;
-    existing.requestBody = { required, content: { 'application/json': { schema } } };
+    
+    const finalSchema = schema instanceof Schema ? schema.getJsonSchema() : schema;
+    
+    existing.requestBody = { required, content: { 'application/json': { schema: finalSchema as ApiSchema } } };
     meta.set(String(propertyKey), existing);
   };
 }
 
-export function ApiResponse(status: number, description: string, schema?: ApiSchema): MethodDecorator {
+export function ApiResponse(status: number, description: string, schema?: ApiSchema | Schema<any>): MethodDecorator {
   return (target: any, propertyKey: string | symbol) => {
     if (!apiMetadata.has(target)) apiMetadata.set(target, new Map());
     const meta = apiMetadata.get(target)!;
     const existing = meta.get(String(propertyKey)) || {} as ApiEndpoint;
     existing.responses = existing.responses || {};
+    
+    const finalSchema = schema instanceof Schema ? schema.getJsonSchema() : schema;
+
     existing.responses[String(status)] = {
       description,
-      content: schema ? { 'application/json': { schema } } : undefined,
+      content: finalSchema ? { 'application/json': { schema: finalSchema as ApiSchema } } : undefined,
     };
     meta.set(String(propertyKey), existing);
   };

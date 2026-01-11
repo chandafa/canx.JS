@@ -7,6 +7,7 @@
 import { existsSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
 import { join, resolve, basename } from 'path';
 import { spawnSync } from 'child_process';
+import { createProject } from './create';
 
 const VERSION = '1.0.0';
 
@@ -331,6 +332,34 @@ function generateFile(type: string, name: string, options: string[] = []) {
 // ============================================
 
 const commands: Record<string, { description: string; handler: (args: string[]) => void | Promise<void> }> = {
+  new: {
+    description: 'Create a new CanxJS project',
+    handler: (args) => {
+      const name = args[0];
+      const template = args.includes('--api') ? 'api' : args.includes('--micro') ? 'microservice' : 'mvc';
+      
+      if (!name) {
+        console.error('Usage: canx new <project-name> [options]');
+        process.exit(1);
+      }
+      createProject(name, template);
+    },
+  },
+
+  create: {
+    description: 'Alias for "new"',
+    handler: (args) => {
+      const name = args[0];
+      const template = args.includes('--api') ? 'api' : args.includes('--micro') ? 'microservice' : 'mvc';
+      
+      if (!name) {
+        console.error('Usage: canx create <project-name> [options]');
+        process.exit(1);
+      }
+      createProject(name, template);
+    },
+  },
+
   serve: {
     description: 'Start development server with hot reload',
     handler: () => {
@@ -560,6 +589,7 @@ Commands:`);
 
   // Group commands
   const groups: Record<string, string[]> = {
+    'Project': ['new', 'create'],
     'Development': ['serve', 'build', 'routes'],
     'Generators': ['make:controller', 'make:model', 'make:middleware', 'make:migration', 'make:seeder', 'make:service', 'make:notification'],
     'Database': ['db:migrate', 'db:rollback', 'db:seed', 'db:fresh'],

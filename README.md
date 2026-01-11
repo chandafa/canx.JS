@@ -158,23 +158,23 @@ bunx create-canx my-api --api     # Create API-only project
 bunx create-canx my-svc --micro   # Create microservice
 
 # Development (inside project)
-canx serve                        # Start dev server with hot reload
-canx build                        # Build for production
-canx routes                       # List all registered routes
+bunx canx serve                     # Start dev server with hot reload
+bunx canx build                     # Build for production
+bunx canx routes                    # List all registered routes
 
 # Generators
-canx make:controller User         # Generate controller
-canx make:model Post --migration  # Generate model with migration
-canx make:middleware Auth         # Generate middleware
-canx make:migration create_posts  # Generate migration
-canx make:seeder User             # Generate seeder
-canx make:service Payment         # Generate service
+bunx canx make:controller User         # Generate controller
+bunx canx make:model Post --migration  # Generate model with migration
+bunx canx make:middleware Auth         # Generate middleware
+bunx canx make:migration create_posts  # Generate migration
+bunx canx make:seeder User             # Generate seeder
+bunx canx make:service Payment         # Generate service
 
 # Database
-canx db:migrate                   # Run migrations
-canx db:rollback                  # Rollback migrations
-canx db:seed                      # Run seeders
-canx db:fresh                     # Drop all & re-migrate
+bunx canx db:migrate                   # Run migrations
+bunx canx db:rollback                  # Rollback migrations
+bunx canx db:seed                      # Run seeders
+bunx canx db:fresh                     # Drop all & re-migrate
 ```
 
 ## Project Structure

@@ -1,6 +1,6 @@
 {
   "name": "canxjs",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Ultra-fast async-first MVC backend framework for Bun runtime",
   "type": "module",
   "main": "./dist/index.js",
@@ -93,5 +93,8 @@
   "bugs": {
     "url": "https://github.com/chandafa/canx.JS/issues"
   },
-  "homepage": "https://github.com/chandafa/canx.JS#readme"
+  "homepage": "https://github.com/chandafa/canx.JS#readme",
+  "publishConfig": {
+    "access": "public"
+  }
 }
