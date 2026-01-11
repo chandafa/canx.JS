@@ -88,10 +88,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/user/canxjs.git"
+    "url": "git+https://github.com/chandafa/canx.JS.git"
   },
   "bugs": {
-    "url": "https://github.com/user/canxjs/issues"
+    "url": "https://github.com/chandafa/canx.JS/issues"
   },
-  "homepage": "https://canxjs.dev"
+  "homepage": "https://github.com/chandafa/canx.JS#readme"
 }
