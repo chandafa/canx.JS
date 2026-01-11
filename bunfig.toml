@@ -1,0 +1,20 @@
+[bundle]
+entryPoints = ["./src/index.ts"]
+outdir = "./dist"
+target = "bun"
+format = "esm"
+minify = false
+sourcemap = "external"
+
+[install]
+auto = true
+
+[install.cache]
+disable = false
+
+[run]
+silent = false
+
+[test]
+root = "./tests"
+coverage = true

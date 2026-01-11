@@ -1,0 +1,97 @@
+{
+  "name": "canxjs",
+  "version": "1.0.0",
+  "description": "Ultra-fast async-first MVC backend framework for Bun runtime",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./router": {
+      "import": "./dist/core/Router.js",
+      "types": "./dist/core/Router.d.ts"
+    },
+    "./controller": {
+      "import": "./dist/mvc/Controller.js",
+      "types": "./dist/mvc/Controller.d.ts"
+    },
+    "./model": {
+      "import": "./dist/mvc/Model.js",
+      "types": "./dist/mvc/Model.d.ts"
+    },
+    "./view": {
+      "import": "./dist/mvc/View.js",
+      "types": "./dist/mvc/View.d.ts"
+    }
+  },
+  "bin": {
+    "canx": "cli/bin.ts",
+    "create-canx": "cli/create.ts"
+  },
+  "files": [
+    "dist",
+    "cli",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "build:types": "tsc --emitDeclarationOnly --outDir dist",
+    "dev": "bun --watch src/index.ts",
+    "test": "bun test",
+    "test:integration": "bun test ./tests/integration",
+    "benchmark": "bun run ./benchmarks/run.ts",
+    "prepublishOnly": "bun run build && bun run build:types"
+  },
+  "keywords": [
+    "bun",
+    "framework",
+    "mvc",
+    "backend",
+    "async",
+    "fast",
+    "typescript",
+    "jsx",
+    "orm",
+    "router",
+    "rest-api",
+    "web-framework",
+    "nodejs-alternative",
+    "server",
+    "http",
+    "middleware",
+    "controller",
+    "model",
+    "view"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "dependencies": {
+    "mysql2": "^3.9.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/pg": "^8.16.0",
+    "pg": "^8.11.0",
+    "typescript": "^5.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/user/canxjs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/user/canxjs/issues"
+  },
+  "homepage": "https://canxjs.dev"
+}
