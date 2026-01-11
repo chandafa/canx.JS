@@ -91,27 +91,29 @@ export class Canx implements CanxApplication {
       await plugin.install(this);
     }
 
-    // Create request handler
-    const handleRequest = async (rawReq: Request): Promise<Response> => {
-      const req = createCanxRequest(rawReq);
-      const res = createCanxResponse();
-
-      // Match route
-      const match = this.router.match(req.method, req.path);
-
-      if (!match) {
-        return res.status(404).json({ error: 'Not Found', path: req.path });
-      }
-
-      // Update params
-      Object.assign(req.params, match.params);
-
-      // Execute middleware pipeline and handler
-      return this.pipeline.execute(req, res, match.middlewares, () => match.handler(req, res));
-    };
-
-    this.server = new Server(this.config, handleRequest);
+    this.server = new Server(this.config, (req) => this.handle(req));
     await this.server.listen(callback);
+  }
+
+  /**
+   * Handle a raw request (internal or for testing)
+   */
+  async handle(rawReq: Request): Promise<Response> {
+    const req = createCanxRequest(rawReq);
+    const res = createCanxResponse();
+
+    // Match route
+    const match = this.router.match(req.method, req.path);
+
+    if (!match) {
+      return res.status(404).json({ error: 'Not Found', path: req.path });
+    }
+
+    // Update params
+    Object.assign(req.params, match.params);
+
+    // Execute middleware pipeline and handler
+    return this.pipeline.execute(req, res, match.middlewares, () => match.handler(req, res));
   }
 
   /**

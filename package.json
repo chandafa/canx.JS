@@ -1,6 +1,6 @@
 {
   "name": "canxjs",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Ultra-fast async-first MVC backend framework for Bun runtime",
   "type": "module",
   "main": "./dist/index.js",

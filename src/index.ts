@@ -22,6 +22,8 @@ export { validateSchema } from './middlewares/ValidationMiddleware';
 // ============================================
 export { z, Schema as ZSchema } from './schema/Schema';
 export type { Infer } from './schema/Schema';
+export { ClientGenerator } from './generator/ClientGenerator';
+export { TestClient } from './testing/TestClient';
 
 // ============================================
 // MVC Exports
@@ -66,6 +68,8 @@ export { seeder, fake, factory as seederFactory, defineSeeder } from './database
 // Queue Exports
 // ============================================
 export { queue, createQueue } from './queue/Queue';
+export { RedisDriver } from './queue/drivers/RedisDriver';
+export { MemoryDriver } from './queue/drivers/MemoryDriver';
 
 // ============================================
 // Realtime Exports
@@ -155,7 +159,6 @@ export type { I18nConfig, TranslationObject } from './utils/i18n';
 // Testing Exports
 // ============================================
 export {
-  TestClient,
   ResponseAssertions,
   MockFactory,
   createTestClient,

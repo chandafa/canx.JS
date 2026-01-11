@@ -387,7 +387,37 @@ const commands: Record<string, { description: string; handler: (args: string[]) 
         routes.forEach((r: any) => console.log(`  ${r.method.padEnd(7)} ${r.path}`));
         console.log(`\nTotal: ${routes.length} routes\n`);
       } catch (e) {
-        console.error('Could not load routes. Make sure src/app.ts exists.');
+        console.error('Could not load routes. Make sure src/app.ts exists and exports default app.');
+      }
+    },
+  },
+
+  'generate:client': {
+    description: 'Generate Type-Safe Client SDK',
+    handler: async (args) => {
+      const output = args[0] || 'client.ts';
+      console.log(`\n🔮 Generating Client SDK to ${output}...\n`);
+      try {
+        // We need to import the app to get the routes
+        // This assumes src/app.ts exports the Canx app instance as default
+        const appModule = await import(process.cwd() + '/src/app.ts');
+        const app = appModule.default;
+        
+        if (!app) {
+           throw new Error('src/app.ts must export the Canx app instance as default.');
+        }
+
+        // We import ClientGenerator dynamically to ensure we get the one from the project's canxjs version
+        // Or if we are running from the CLI package itself, we might need a different strategy.
+        // For now, let's try importing from the framework.
+        const { ClientGenerator } = await import('canxjs');
+        const generator = new ClientGenerator(app);
+        generator.generate(output);
+
+        console.log('\n✅ Client SDK generated successfully!\n');
+      } catch (e) {
+        console.error('Generation failed:', e);
+        console.log('Tip: Ensure src/app.ts exports "default app"');
       }
     },
   },
@@ -590,7 +620,7 @@ Commands:`);
   // Group commands
   const groups: Record<string, string[]> = {
     'Project': ['new', 'create'],
-    'Development': ['serve', 'build', 'routes'],
+    'Development': ['serve', 'build', 'routes', 'generate:client'],
     'Generators': ['make:controller', 'make:model', 'make:middleware', 'make:migration', 'make:seeder', 'make:service', 'make:notification'],
     'Database': ['db:migrate', 'db:rollback', 'db:seed', 'db:fresh'],
     'Other': ['version', 'help'],

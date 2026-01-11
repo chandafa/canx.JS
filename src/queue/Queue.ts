@@ -1,106 +1,59 @@
-/**
- * CanxJS Queue - Built-in Task Queue / Job System
- */
+import type { QueueConfig, QueueDriver, Job } from './drivers/types';
+import { MemoryDriver } from './drivers/MemoryDriver';
 
-type JobHandler = (data: unknown) => Promise<void> | void;
-
-interface Job {
-  id: string;
-  name: string;
-  data: unknown;
-  attempts: number;
-  maxAttempts: number;
-  delay: number;
-  scheduledAt: number;
-  createdAt: number;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  error?: string;
-}
-
-interface QueueConfig {
-  concurrency?: number;
-  retryDelay?: number;
-  maxRetries?: number;
-}
-
-class Queue {
-  private jobs: Map<string, Job> = new Map();
-  private handlers: Map<string, JobHandler> = new Map();
-  private processing: Set<string> = new Set();
+export class Queue {
+  private driver: QueueDriver;
   private config: QueueConfig;
   private running: boolean = false;
+  private processing: boolean = false;
+  private handlers: Map<string, (data: any) => Promise<void>> = new Map();
   private timer: Timer | null = null;
+  private concurrency: number;
 
   constructor(config: QueueConfig = {}) {
-    this.config = {
-      concurrency: 5,
-      retryDelay: 5000,
-      maxRetries: 3,
-      ...config,
-    };
+    this.config = config;
+    this.concurrency = config.concurrency || 5;
+
+    // Default to Memory Driver
+    if (config.connections?.redis && config.default === 'redis') {
+      // Allow dynamic injection of Redis client or driver
+      // For now, we default to memory if no driver instance provided externally
+      // In a real app, we would load RedisDriver here
+      console.warn('[Queue] Redis driver requires manual setup or injection. Defaulting to Memory.');
+      this.driver = (config as any).driverInstance || new MemoryDriver();
+    } else {
+      this.driver = new MemoryDriver();
+    }
+  }
+
+  /**
+   * Use a specific driver instance
+   */
+  use(driver: QueueDriver): this {
+    this.driver = driver;
+    return this;
   }
 
   /**
    * Define a job handler
    */
-  define(name: string, handler: JobHandler): void {
+  define(name: string, handler: (data: any) => Promise<void>): void {
     this.handlers.set(name, handler);
   }
 
   /**
    * Dispatch a job immediately
    */
-  dispatch(name: string, data: unknown = {}): string {
-    return this.addJob(name, data, 0);
+  async dispatch(name: string, data: unknown = {}): Promise<string> {
+    return this.driver.push({ name, data, delay: 0, maxAttempts: 3, scheduledAt: Date.now() });
   }
 
   /**
    * Schedule a job to run later
    */
-  schedule(name: string, data: unknown, delay: string | number): string {
+  async schedule(name: string, data: unknown, delay: number | string): Promise<string> {
     const delayMs = typeof delay === 'string' ? this.parseDelay(delay) : delay;
-    return this.addJob(name, data, delayMs);
-  }
-
-  /**
-   * Schedule a job to run at a specific time
-   */
-  scheduleAt(name: string, data: unknown, date: Date): string {
-    const delayMs = date.getTime() - Date.now();
-    return this.addJob(name, data, Math.max(0, delayMs));
-  }
-
-  private addJob(name: string, data: unknown, delay: number): string {
-    const id = `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-    const job: Job = {
-      id,
-      name,
-      data,
-      attempts: 0,
-      maxAttempts: this.config.maxRetries! + 1,
-      delay,
-      scheduledAt: Date.now() + delay,
-      createdAt: Date.now(),
-      status: 'pending',
-    };
-    this.jobs.set(id, job);
-    return id;
-  }
-
-  private parseDelay(delay: string): number {
-    const match = delay.match(/^(\d+)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hour|hours|d|day|days)$/i);
-    if (!match) return 0;
-    
-    const value = parseInt(match[1]);
-    const unit = match[2].toLowerCase();
-    
-    switch (unit) {
-      case 's': case 'sec': case 'second': case 'seconds': return value * 1000;
-      case 'm': case 'min': case 'minute': case 'minutes': return value * 60 * 1000;
-      case 'h': case 'hour': case 'hours': return value * 60 * 60 * 1000;
-      case 'd': case 'day': case 'days': return value * 24 * 60 * 60 * 1000;
-      default: return 0;
-    }
+    return this.driver.push({ name, data, delay: delayMs, maxAttempts: 3, scheduledAt: Date.now() + delayMs });
   }
 
   /**
@@ -109,8 +62,8 @@ class Queue {
   start(): void {
     if (this.running) return;
     this.running = true;
-    console.log('[Queue] Started processing jobs');
-    this.tick();
+    console.log('[Queue] Worker started');
+    this.process();
   }
 
   /**
@@ -118,110 +71,77 @@ class Queue {
    */
   stop(): void {
     this.running = false;
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    console.log('[Queue] Stopped processing jobs');
+    if (this.timer) clearTimeout(this.timer);
+    console.log('[Queue] Worker stopped');
   }
 
-  private async tick(): Promise<void> {
+  private async process() {
     if (!this.running) return;
 
-    const now = Date.now();
-    const pendingJobs = Array.from(this.jobs.values())
-      .filter(j => j.status === 'pending' && j.scheduledAt <= now && !this.processing.has(j.id))
-      .slice(0, this.config.concurrency! - this.processing.size);
-
-    for (const job of pendingJobs) {
-      this.processJob(job);
+    if (this.processing) {
+       this.timer = setTimeout(() => this.process(), 100);
+       return;
     }
 
-    this.timer = setTimeout(() => this.tick(), 100);
+    this.processing = true;
+    try {
+      const job = await this.driver.pop();
+      if (job) {
+        await this.handleJob(job);
+        // If we found a job, try to get another one immediately
+        this.processing = false;
+        setImmediate(() => this.process());
+        return;
+      }
+    } catch (e) {
+      console.error('[Queue] Error processing job:', e);
+    } finally {
+      this.processing = false;
+    }
+
+    // No job found, wait a bit
+    this.timer = setTimeout(() => this.process(), 1000);
   }
 
-  private async processJob(job: Job): Promise<void> {
+  private async handleJob(job: Job) {
     const handler = this.handlers.get(job.name);
     if (!handler) {
-      console.error(`[Queue] No handler for job: ${job.name}`);
-      job.status = 'failed';
-      job.error = 'No handler defined';
+      console.error(`[Queue] No handler for ${job.name}`);
+      await this.driver.fail(job, new Error('No handler'));
       return;
     }
 
-    this.processing.add(job.id);
-    job.status = 'processing';
-    job.attempts++;
-
     try {
       await handler(job.data);
-      job.status = 'completed';
-      console.log(`[Queue] Completed: ${job.name} (${job.id})`);
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      console.error(`[Queue] Failed: ${job.name} (${job.id}) - ${errMsg}`);
-
+      await this.driver.complete(job);
+    } catch (e) {
+      console.error(`[Queue] Failed ${job.name}:`, e);
       if (job.attempts < job.maxAttempts) {
-        job.status = 'pending';
-        job.scheduledAt = Date.now() + this.config.retryDelay!;
-        console.log(`[Queue] Retrying ${job.name} in ${this.config.retryDelay}ms (attempt ${job.attempts}/${job.maxAttempts})`);
+        // Retry logic usually depends on driver, but here we explicitly release
+        await this.driver.release(job, 5000 * (job.attempts + 1)); 
       } else {
-        job.status = 'failed';
-        job.error = errMsg;
-      }
-    } finally {
-      this.processing.delete(job.id);
-    }
-  }
-
-  /**
-   * Get job by ID
-   */
-  getJob(id: string): Job | undefined {
-    return this.jobs.get(id);
-  }
-
-  /**
-   * Get all jobs of a status
-   */
-  getJobs(status?: Job['status']): Job[] {
-    const jobs = Array.from(this.jobs.values());
-    return status ? jobs.filter(j => j.status === status) : jobs;
-  }
-
-  /**
-   * Remove completed/failed jobs
-   */
-  prune(): number {
-    let count = 0;
-    for (const [id, job] of this.jobs) {
-      if (job.status === 'completed' || job.status === 'failed') {
-        this.jobs.delete(id);
-        count++;
+        await this.driver.fail(job, e as Error);
       }
     }
-    return count;
   }
 
-  /**
-   * Get queue statistics
-   */
-  stats(): { pending: number; processing: number; completed: number; failed: number } {
-    const jobs = Array.from(this.jobs.values());
-    return {
-      pending: jobs.filter(j => j.status === 'pending').length,
-      processing: jobs.filter(j => j.status === 'processing').length,
-      completed: jobs.filter(j => j.status === 'completed').length,
-      failed: jobs.filter(j => j.status === 'failed').length,
-    };
+  private parseDelay(delay: string): number {
+    const match = delay.match(/^(\d+)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hour|hours|d|day|days)$/i);
+    if (!match) return 0;
+    const value = parseInt(match[1]);
+    const unit = match[2].toLowerCase();
+    switch (unit) {
+      case 's': case 'sec': return value * 1000;
+      case 'm': case 'min': return value * 60 * 1000;
+      case 'h': case 'hour': return value * 60 * 60 * 1000;
+      case 'd': case 'day': return value * 24 * 60 * 60 * 1000;
+      default: return 0;
+    }
   }
 }
 
-// Singleton instance
 export const queue = new Queue();
-
-export function createQueue(config?: QueueConfig): Queue {
-  return new Queue(config);
-}
-
-export default queue;
+export function createQueue(config?: QueueConfig) { return new Queue(config); }
+export { QueueConfig, QueueDriver, Job };
+export { MemoryDriver } from './drivers/MemoryDriver';
+export { RedisDriver } from './drivers/RedisDriver';
