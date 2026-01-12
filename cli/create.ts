@@ -309,7 +309,7 @@ dist/
 function getReadme(name: string) {
   return `# ${name}
 
-Built with [CanxJS](https://canxjs.dev) - Ultra-fast async-first MVC framework for Bun
+Built with [CanxJS](http://docs-canxjs.netlify.app) - Ultra-fast async-first MVC framework for Bun
 
 ## Getting Started
 

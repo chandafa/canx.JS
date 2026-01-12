@@ -196,12 +196,12 @@ my-app/
 
 ## Documentation
 
-- [Getting Started](https://canxjs.dev/docs/getting-started)
-- [Routing](https://canxjs.dev/docs/routing)
-- [Controllers](https://canxjs.dev/docs/controllers)
-- [Models & ORM](https://canxjs.dev/docs/orm)
-- [Middleware](https://canxjs.dev/docs/middleware)
-- [HotWire](https://canxjs.dev/docs/hotwire)
+- [Getting Started](http://docs-canxjs.netlify.app/docs/installation)
+- [Routing](http://docs-canxjs.netlify.app/docs/routing)
+- [Controllers](http://docs-canxjs.netlify.app/docs/controllers)
+- [Models & ORM](http://docs-canxjs.netlify.app/docs/orm)
+- [Middleware](http://docs-canxjs.netlify.app/docs/middleware)
+- [HotWire](http://docs-canxjs.netlify.app/docs/hotwire)
 
 ## License
 
