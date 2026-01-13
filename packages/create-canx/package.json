@@ -1,6 +1,6 @@
 {
   "name": "create-canx",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Scaffolding tool for CanxJS",
   "type": "module",
   "bin": {
@@ -10,7 +10,9 @@
     "index.ts"
   ],
   "dependencies": {
-    "canxjs": "latest"
+    "canxjs": "latest",
+    "picocolors": "^1.1.1",
+    "prompts": "^2.4.2"
   },
   "devDependencies": {
     "@types/bun": "latest"

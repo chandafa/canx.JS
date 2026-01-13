@@ -6,41 +6,56 @@
 
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
+import prompts from 'prompts';
+import pc from 'picocolors';
 
-const TEMPLATES = {
-  mvc: {
-    name: 'MVC Application',
-    description: 'Full MVC application with controllers, models, and views',
-  },
-  api: {
-    name: 'API Only',
-    description: 'REST API without views',
-  },
-  microservice: {
-    name: 'Microservice',
-    description: 'Minimal microservice structure',
-  },
-};
+type ProjectType = 'api' | 'mvc' | 'microservice';
+type Language = 'typescript' | 'javascript';
+type Database = 'mysql' | 'postgres' | 'sqlite';
 
-// Project files
-function getPackageJson(name: string, template: string) {
+interface ProjectOptions {
+  name: string;
+  type: ProjectType;
+  language: Language;
+  database: Database;
+  prisma: boolean;
+}
+
+// Project files generators
+function getPackageJson(options: ProjectOptions) {
+  const deps: Record<string, string> = {
+    'canxjs': '^1.0.0',
+  };
+  
+  const devDeps: Record<string, string> = {
+    '@types/bun': 'latest',
+  };
+
+  if (options.language === 'typescript') {
+    devDeps['typescript'] = '^5.3.0';
+  }
+
+  if (options.prisma) {
+    deps['@prisma/client'] = 'latest';
+    devDeps['prisma'] = 'latest';
+  }
+
   return JSON.stringify({
-    name,
+    name: options.name,
     version: '1.0.0',
     type: 'module',
     scripts: {
-      dev: 'bun --watch src/app.ts',
-      start: 'bun src/app.ts',
-      build: 'bun build src/app.ts --outdir dist --target bun',
+      dev: `bun --watch src/app.${options.language === 'typescript' ? 'ts' : 'js'}`,
+      start: `bun src/app.${options.language === 'typescript' ? 'ts' : 'js'}`,
+      build: `bun build src/app.${options.language === 'typescript' ? 'ts' : 'js'} --outdir dist --target bun`,
       test: 'bun test',
+      ...(options.prisma ? {
+        "db:migrate": "prisma migrate dev",
+        "db:studio": "prisma studio"
+      } : {})
     },
-    dependencies: {
-      canxjs: '^1.0.0',
-    },
-    devDependencies: {
-      '@types/bun': 'latest',
-      typescript: '^5.3.0',
-    },
+    dependencies: deps,
+    devDependencies: devDeps,
   }, null, 2);
 }
 
@@ -59,6 +74,7 @@ function getTsConfig() {
       noEmit: true,
       baseUrl: '.',
       paths: { '@/*': ['./src/*'] },
+      allowJs: true,
     },
     include: ['src/**/*'],
   }, null, 2);
@@ -66,12 +82,14 @@ function getTsConfig() {
 
 function getBunfig() {
   return `[run]
-watch = ["src/**/*.ts", "src/**/*.tsx"]
+watch = ["src/**/*.ts", "src/**/*.tsx", "src/**/*.js", "src/**/*.jsx"]
 `;
 }
 
-function getAppTs(template: string) {
-  if (template === 'microservice') {
+function getAppContent(options: ProjectOptions) {
+  const isTs = options.language === 'typescript';
+  
+  if (options.type === 'microservice') {
     return `import { createApp } from 'canxjs';
 
 const app = createApp({ port: 3000 });
@@ -83,11 +101,16 @@ app.listen();
 `;
   }
 
-  return `import { createApp, logger, cors } from 'canxjs';
-import { initDatabase } from 'canxjs';
-import { webRoutes } from './routes/web';
-import { apiRoutes } from './routes/api';
-import dbConfig from './config/database';
+  // MVC or API
+  const imports = [
+    `import { createApp, logger, cors } from 'canxjs';`,
+    `import { initDatabase } from 'canxjs';`,
+    `import { webRoutes } from './routes/web';`,
+    `import { apiRoutes } from './routes/api';`,
+    `import dbConfig from './config/database';`,
+  ];
+
+  return `${imports.join('\n')}
 
 const app = createApp({
   port: 3000,
@@ -100,7 +123,7 @@ app.use(logger());
 app.use(cors());
 
 // Routes
-app.routes(webRoutes);
+${options.type === 'mvc' ? 'app.routes(webRoutes);' : ''}
 app.routes(apiRoutes);
 
 // Initialize database and start server
@@ -113,11 +136,15 @@ bootstrap().catch(console.error);
 `;
 }
 
-function getWebRoutes() {
-  return `import type { RouterInstance } from 'canxjs';
+function getWebRoutes(options: ProjectOptions) {
+  const isTs = options.language === 'typescript';
+  const typeImport = isTs ? "import type { RouterInstance } from 'canxjs';" : "";
+  const typeAnnot = isTs ? ": RouterInstance" : "";
+
+  return `${typeImport}
 import { HomeController } from '../controllers/HomeController';
 
-export function webRoutes(router: RouterInstance) {
+export function webRoutes(router${typeAnnot}) {
   const home = new HomeController();
   
   router.get('/', (req, res) => home.index(req, res));
@@ -126,11 +153,15 @@ export function webRoutes(router: RouterInstance) {
 `;
 }
 
-function getApiRoutes() {
-  return `import type { RouterInstance } from 'canxjs';
+function getApiRoutes(options: ProjectOptions) {
+  const isTs = options.language === 'typescript';
+  const typeImport = isTs ? "import type { RouterInstance } from 'canxjs';" : "";
+  const typeAnnot = isTs ? ": RouterInstance" : "";
+
+  return `${typeImport}
 import { UserController } from '../controllers/UserController';
 
-export function apiRoutes(router: RouterInstance) {
+export function apiRoutes(router${typeAnnot}) {
   router.group('/api', (api) => {
     api.group('/users', (users) => {
       users.get('/', UserController.index);
@@ -144,15 +175,20 @@ export function apiRoutes(router: RouterInstance) {
 `;
 }
 
-function getHomeController() {
+function getHomeController(options: ProjectOptions) {
+  const isTs = options.language === 'typescript';
+  const typeImports = isTs ? "import type { CanxRequest, CanxResponse } from 'canxjs';" : "";
+  const reqType = isTs ? ": CanxRequest" : "";
+  const resType = isTs ? ": CanxResponse" : "";
+
   return `import { BaseController, Controller, Get } from 'canxjs';
 import { renderPage, jsx } from 'canxjs';
-import type { CanxRequest, CanxResponse } from 'canxjs';
+${typeImports}
 
 @Controller('/')
 export class HomeController extends BaseController {
   @Get('/')
-  index(req: CanxRequest, res: CanxResponse) {
+  index(req${reqType}, res${resType}) {
     const html = renderPage(
       jsx('div', { className: 'container' },
         jsx('h1', null, 'Welcome to CanxJS!'),
@@ -165,7 +201,7 @@ export class HomeController extends BaseController {
   }
 
   @Get('/about')
-  about(req: CanxRequest, res: CanxResponse) {
+  about(req${reqType}, res${resType}) {
     const html = renderPage(
       jsx('div', { className: 'container' },
         jsx('h1', null, 'About CanxJS'),
@@ -185,24 +221,29 @@ export class HomeController extends BaseController {
 `;
 }
 
-function getUserController() {
-  return `import type { CanxRequest, CanxResponse } from 'canxjs';
+function getUserController(options: ProjectOptions) {
+  const isTs = options.language === 'typescript';
+  const typeImports = isTs ? "import type { CanxRequest, CanxResponse } from 'canxjs';" : "";
+  const reqType = isTs ? ": CanxRequest" : "";
+  const resType = isTs ? ": CanxResponse" : "";
+
+  return `${typeImports}
 import { User } from '../models/User';
 import { validate } from 'canxjs';
 
 export class UserController {
-  static async index(req: CanxRequest, res: CanxResponse) {
+  static async index(req${reqType}, res${resType}) {
     const users = await User.all();
     return res.json({ data: users });
   }
 
-  static async show(req: CanxRequest, res: CanxResponse) {
+  static async show(req${reqType}, res${resType}) {
     const user = await User.find(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     return res.json({ data: user });
   }
 
-  static async store(req: CanxRequest, res: CanxResponse) {
+  static async store(req${reqType}, res${resType}) {
     const body = await req.json();
     const { valid, errors, data } = validate(body, {
       name: ['required', 'string', 'min:2'],
@@ -216,14 +257,14 @@ export class UserController {
     return res.status(201).json({ data: user });
   }
 
-  static async update(req: CanxRequest, res: CanxResponse) {
+  static async update(req${reqType}, res${resType}) {
     const body = await req.json();
     const updated = await User.updateById(req.params.id, body);
     if (!updated) return res.status(404).json({ error: 'User not found' });
     return res.json({ message: 'User updated' });
   }
 
-  static async destroy(req: CanxRequest, res: CanxResponse) {
+  static async destroy(req${reqType}, res${resType}) {
     const deleted = await User.deleteById(req.params.id);
     if (!deleted) return res.status(404).json({ error: 'User not found' });
     return res.status(204).empty();
@@ -232,8 +273,11 @@ export class UserController {
 `;
 }
 
-function getUserModel() {
-  return `import { Model } from 'canxjs';
+function getUserModel(options: ProjectOptions) {
+  const isTs = options.language === 'typescript';
+  
+  if (isTs) {
+    return `import { Model } from 'canxjs';
 
 interface UserType {
   id: number;
@@ -242,7 +286,7 @@ interface UserType {
   password: string;
   created_at: string;
   updated_at: string;
-  }
+}
 
 export class User extends Model<UserType> {
   protected static tableName = 'users';
@@ -254,15 +298,38 @@ export class User extends Model<UserType> {
   }
 }
 `;
+  } else {
+    // JS Version
+    return `import { Model } from 'canxjs';
+
+export class User extends Model {
+  static tableName = 'users';
+  static primaryKey = 'id';
+  static timestamps = true;
+
+  static async findByEmail(email) {
+    return this.query().where('email', '=', email).first();
+  }
+}
+`;
+  }
 }
 
-function getDatabaseConfig() {
-  return `import type { DatabaseConfig } from 'canxjs';
+function getDatabaseConfig(options: ProjectOptions) {
+  const isTs = options.language === 'typescript';
+  const typeExport = isTs ? "import type { DatabaseConfig } from 'canxjs';" : "";
+  const typeAnnot = isTs ? ": DatabaseConfig" : "";
+  
+  let driver = 'mysql'; // default
+  if (options.database === 'postgres') driver = 'postgres';
+  if (options.database === 'sqlite') driver = 'sqlite';
 
-const config: DatabaseConfig = {
-  driver: 'mysql',
+  return `${typeExport}
+
+const config${typeAnnot} = {
+  driver: '${driver}',
   host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT) || 3306,
+  port: Number(process.env.DB_PORT) || ${driver === 'postgres' ? 5432 : 3306},
   database: process.env.DB_NAME || 'canxjs_app',
   username: process.env.DB_USER || 'root',
   password: process.env.DB_PASS || '',
@@ -284,13 +351,14 @@ function getAppConfig() {
 `;
 }
 
-function getEnvExample() {
+function getEnvExample(options: ProjectOptions) {
+  const port = options.database === 'postgres' ? 5432 : 3306;
   return `NODE_ENV=development
 PORT=3000
 APP_KEY=your-secret-key
 
 DB_HOST=localhost
-DB_PORT=3306
+DB_PORT=${port}
 DB_NAME=canxjs_app
 DB_USER=root
 DB_PASS=
@@ -317,117 +385,194 @@ Built with [CanxJS](http://docs-canxjs.netlify.app) - Ultra-fast async-first MVC
 bun install
 bun run dev
 \`\`\`
-
-## Available Scripts
-
-- \`bun run dev\` - Start development server with hot reload
-- \`bun run start\` - Start production server
-- \`bun run build\` - Build for production
-- \`bun run test\` - Run tests
-
-## Project Structure
-
-\`\`\`
-src/
-├── controllers/    # Request handlers
-├── models/         # Database models
-├── views/          # JSX views
-├── routes/         # Route definitions
-├── middlewares/    # Custom middlewares
-├── config/         # Configuration files
-└── app.ts          # Application entry
-\`\`\`
 `;
 }
 
+function getPrismaSchema(options: ProjectOptions) {
+  let provider = 'mysql';
+  if (options.database === 'postgres') provider = 'postgresql';
+  if (options.database === 'sqlite') provider = 'sqlite';
+
+  return `generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "${provider}"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+`;
+}
+
+
+// MAIN FUNCTION
+async function main() {
+  const args = process.argv.slice(2);
+  let projectName = args.find(arg => !arg.startsWith('-'));
+
+  // PROMPT 1: Project Name (if not provided)
+  if (!projectName) {
+    const response = await prompts({
+      type: 'text',
+      name: 'projectName',
+      message: 'What is the name of your project?',
+      initial: 'my-app'
+    });
+    projectName = response.projectName;
+  }
+  
+  if (!projectName) {
+     console.log(pc.red('❌ Operation cancelled'));
+     process.exit(1);
+  }
+
+  // Define questions
+  const questions: prompts.PromptObject[] = [
+    {
+      type: 'select',
+      name: 'type',
+      message: 'Mau membuat project apa?', 
+      choices: [
+        { title: 'Fullstack (MVC)', value: 'mvc', description: 'Full application with views' },
+        { title: 'API Only', value: 'api', description: 'REST API without views' },
+        { title: 'Microservice', value: 'microservice', description: 'Minimal microservice' }
+      ],
+      initial: 0
+    },
+    {
+      type: 'select',
+      name: 'language',
+      message: 'Mau menggunakan bahasa apa?',
+      choices: [
+        { title: 'TypeScript', value: 'typescript', description: 'Strongly typed (Recommended)' },
+        { title: 'JavaScript', value: 'javascript', description: 'Standard JavaScript' }
+        // { title: 'Go (Future)', value: 'go', disabled: true }
+      ],
+      initial: 0
+    },
+    {
+      type: 'select',
+      name: 'database',
+      message: 'Mau menggunakan database apa?',
+      choices: [
+        { title: 'MySQL', value: 'mysql' },
+        { title: 'PostgreSQL', value: 'postgres' },
+        { title: 'SQLite', value: 'sqlite' }
+      ],
+      initial: 0
+    },
+    {
+      type: 'select',
+      name: 'prisma',
+      message: 'Mau otomatis menggunakan tools prisma atau tidak?',
+      choices: [
+        { title: 'Yes', value: true },
+        { title: 'No', value: false }
+      ],
+      initial: 0
+    }
+  ];
+
+  const answers = await prompts(questions, {
+    onCancel: () => {
+      console.log(pc.red('❌ Operation cancelled'));
+      process.exit(1);
+    }
+  });
+
+  const options: ProjectOptions = {
+    name: projectName!,
+    type: answers.type,
+    language: answers.language,
+    database: answers.database,
+    prisma: answers.prisma
+  };
+
+  createProject(options);
+}
+
 // Create project
-function createProject(projectName: string, template: string = 'mvc') {
-  const projectPath = resolve(process.cwd(), projectName);
+function createProject(options: ProjectOptions) {
+  const projectPath = resolve(process.cwd(), options.name);
 
   if (existsSync(projectPath)) {
-    console.error(`❌ Directory "${projectName}" already exists!`);
+    console.error(pc.red(`❌ Directory "${options.name}" already exists!`));
     process.exit(1);
   }
 
-  console.log(`\n🚀 Creating CanxJS project: ${projectName}\n`);
-
+  console.log(pc.green(`\n🚀 Creating CanxJS project: ${options.name}\n`));
+  console.log(pc.dim(`   Type: ${options.type}`));
+  console.log(pc.dim(`   Language: ${options.language}`));
+  console.log(pc.dim(`   Database: ${options.database}`));
+  
   // Create directories
-  const dirs = template === 'microservice' 
+  const dirs = options.type === 'microservice' 
     ? ['src']
     : ['src', 'src/controllers', 'src/models', 'src/views', 'src/routes', 'src/middlewares', 'src/config', 'public', 'storage'];
 
+  if (options.prisma) {
+    dirs.push('prisma');
+  }
+
   dirs.forEach(dir => {
     mkdirSync(join(projectPath, dir), { recursive: true });
-    console.log(`  📁 Created ${dir}/`);
   });
 
   // Create files
+  const ext = options.language === 'typescript' ? 'ts' : 'js';
+  
   const files: [string, string][] = [
-    ['package.json', getPackageJson(projectName, template)],
-    ['tsconfig.json', getTsConfig()],
+    ['package.json', getPackageJson(options)],
     ['bunfig.toml', getBunfig()],
     ['.gitignore', getGitignore()],
-    ['.env.example', getEnvExample()],
-    ['README.md', getReadme(projectName)],
-    ['src/app.ts', getAppTs(template)],
+    ['.env.example', getEnvExample(options)],
+    ['README.md', getReadme(options.name)],
+    [`src/app.${ext}`, getAppContent(options)],
   ];
 
-  if (template !== 'microservice') {
+  if (options.language === 'typescript') {
+    files.push(['tsconfig.json', getTsConfig()]);
+  }
+
+  if (options.prisma) {
+    files.push(['prisma/schema.prisma', getPrismaSchema(options)]);
+  }
+
+  if (options.type !== 'microservice') {
     files.push(
-      ['src/routes/web.ts', getWebRoutes()],
-      ['src/routes/api.ts', getApiRoutes()],
-      ['src/controllers/HomeController.ts', getHomeController()],
-      ['src/controllers/UserController.ts', getUserController()],
-      ['src/models/User.ts', getUserModel()],
-      ['src/config/database.ts', getDatabaseConfig()],
-      ['src/config/app.ts', getAppConfig()],
+      [`src/routes/web.${ext}`, getWebRoutes(options)],
+      [`src/routes/api.${ext}`, getApiRoutes(options)],
+      [`src/controllers/HomeController.${ext}`, getHomeController(options)],
+      [`src/controllers/UserController.${ext}`, getUserController(options)],
+      [`src/models/User.${ext}`, getUserModel(options)],
+      [`src/config/database.${ext}`, getDatabaseConfig(options)],
+      [`src/config/app.${ext}`, getAppConfig()],
     );
   }
 
   files.forEach(([file, content]) => {
-    writeFileSync(join(projectPath, file), content);
-    console.log(`  📄 Created ${file}`);
+    writeFileSync(join(projectPath, file), content.trim() + '\n');
+    console.log(pc.blue(`  📄 Created ${file}`));
   });
 
-  console.log(`
-✅ Project created successfully!
-
-Next steps:
-  cd ${projectName}
-  bun install
-  bun run dev
-
-🌐 Server will start at http://localhost:3000
-`);
+  console.log(pc.green(`\n✅ Project created successfully!`));
+  console.log(`\nNext steps:\n`);
+  console.log(pc.cyan(`  cd ${options.name}`));
+  console.log(pc.cyan(`  bun install`));
+  if (options.prisma) {
+    console.log(pc.cyan(`  bun run db:migrate`));
+  }
+  console.log(pc.cyan(`  bun run dev`));
+  console.log(`\n🌐 Server will start at http://localhost:3000\n`);
 }
 
-// CLI entry
-const args = process.argv.slice(2);
-const projectName = args.find(arg => !arg.startsWith('-'));
-const template = args.includes('--api') ? 'api' : args.includes('--micro') ? 'microservice' : 'mvc';
-
-function showHelp() {
-  console.log(`
-CanxJS CLI - Project Scaffolding
-
-Usage:
-  bunx create-canx <project-name> [options]
-
-Options:
-  --api      Create API-only project
-  --micro    Create microservice project
-  --help     Show this help message
-
-Examples:
-  bunx create-canx my-app
-  bunx create-canx my-api --api
-  bunx create-canx my-service --micro
-`);
-}
-
-if (args.includes('--help') || args.includes('-h') || !projectName) {
-  showHelp();
-  process.exit(0);
-}
-
-createProject(projectName, template);
+// Run main
+main().catch(console.error);

@@ -121,7 +121,7 @@ export function webRoutes(router: RouterInstance) {
   // Traditional route definition
   // router.get('/', (req, res) => home.index(req, res));
   
-  // New Controller-based routing (v1.2.0+)
+  // New Controller-based routing (v1.2.1+)
   router.controller('/', HomeController);
 }
 `;
