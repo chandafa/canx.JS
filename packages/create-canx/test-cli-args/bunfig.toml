@@ -1,0 +1,2 @@
+[run]
+watch = ["src/**/*.ts", "src/**/*.tsx", "src/**/*.js", "src/**/*.jsx"]

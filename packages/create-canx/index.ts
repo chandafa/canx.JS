@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+
 /**
  * CanxJS CLI - Project scaffolding tool
  * Usage: bunx create-canx my-app
@@ -19,6 +19,20 @@ interface ProjectOptions {
   language: Language;
   database: Database;
   prisma: boolean;
+}
+
+// Helper to parse args
+function parseArgs(args: string[]) {
+  const flags: Record<string, string | boolean> = {};
+  args.forEach(arg => {
+    if (arg.startsWith('--')) {
+      const parts = arg.slice(2).split('=');
+      const key = parts[0];
+      const value = parts.length > 1 ? parts.slice(1).join('=') : true;
+      flags[key] = value;
+    }
+  });
+  return flags;
 }
 
 // Project files generators
@@ -116,6 +130,7 @@ const app = createApp({
   port: 3000,
   development: true,
   cors: true,
+  // Add other config here
 });
 
 // Middlewares
@@ -417,6 +432,31 @@ model User {
 async function main() {
   const args = process.argv.slice(2);
   let projectName = args.find(arg => !arg.startsWith('-'));
+  const flags = parseArgs(args);
+
+  // Handle help
+  if (flags.help || flags.h) {
+    console.log(`
+CanxJS CLI - Project Scaffolding
+
+Usage:
+  bunx create-canx <project-name> [options]
+
+Options:
+  --type <type>        Project type (mvc, api, microservice)
+  --language <lang>    Language (typescript, javascript)
+  --database <db>      Database (mysql, postgres, sqlite)
+  --prisma             Use Prisma ORM (default: false)
+  --no-prisma          Disable Prisma ORM
+  --help, -h           Show this help message
+
+Examples:
+  bunx create-canx my-app
+  bunx create-canx my-api --type=api
+  bunx create-canx my-service --type=microservice --language=javascript
+`);
+    process.exit(0);
+  }
 
   // PROMPT 1: Project Name (if not provided)
   if (!projectName) {
@@ -435,8 +475,10 @@ async function main() {
   }
 
   // Define questions
-  const questions: prompts.PromptObject[] = [
-    {
+  const questions: prompts.PromptObject[] = [];
+
+  if (!flags.type) {
+    questions.push({
       type: 'select',
       name: 'type',
       message: 'Mau membuat project apa?', 
@@ -446,19 +488,24 @@ async function main() {
         { title: 'Microservice', value: 'microservice', description: 'Minimal microservice' }
       ],
       initial: 0
-    },
-    {
+    });
+  }
+
+  if (!flags.language) {
+    questions.push({
       type: 'select',
       name: 'language',
       message: 'Mau menggunakan bahasa apa?',
       choices: [
         { title: 'TypeScript', value: 'typescript', description: 'Strongly typed (Recommended)' },
         { title: 'JavaScript', value: 'javascript', description: 'Standard JavaScript' }
-        // { title: 'Go (Future)', value: 'go', disabled: true }
       ],
       initial: 0
-    },
-    {
+    });
+  }
+
+  if (!flags.database) {
+    questions.push({
       type: 'select',
       name: 'database',
       message: 'Mau menggunakan database apa?',
@@ -468,8 +515,11 @@ async function main() {
         { title: 'SQLite', value: 'sqlite' }
       ],
       initial: 0
-    },
-    {
+    });
+  }
+
+  if (flags.prisma === undefined && !flags['no-prisma']) {
+    questions.push({
       type: 'select',
       name: 'prisma',
       message: 'Mau otomatis menggunakan tools prisma atau tidak?',
@@ -478,25 +528,34 @@ async function main() {
         { title: 'No', value: false }
       ],
       initial: 0
-    }
-  ];
+    });
+  }
 
-  const answers = await prompts(questions, {
+  const answers = questions.length > 0 ? await prompts(questions, {
     onCancel: () => {
       console.log(pc.red('❌ Operation cancelled'));
       process.exit(1);
     }
-  });
+  }) : {};
 
-  const options: ProjectOptions = {
+  // Default values
+  const defaultOptions: ProjectOptions = {
     name: projectName!,
-    type: answers.type,
-    language: answers.language,
-    database: answers.database,
-    prisma: answers.prisma
+    type: 'mvc',
+    language: 'typescript',
+    database: 'mysql',
+    prisma: false
   };
 
-  createProject(options);
+  const finalOptions: ProjectOptions = {
+    name: projectName!,
+    type: (flags.type as ProjectType) || answers.type || defaultOptions.type,
+    language: (flags.language as Language) || answers.language || defaultOptions.language,
+    database: (flags.database as Database) || answers.database || defaultOptions.database,
+    prisma: flags.prisma === true || flags.prisma === 'true' || answers.prisma === true || false
+  };
+
+  createProject(finalOptions);
 }
 
 // Create project

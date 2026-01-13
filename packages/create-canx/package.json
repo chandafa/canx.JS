@@ -1,12 +1,13 @@
 {
   "name": "create-canx",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Scaffolding tool for CanxJS",
   "type": "module",
   "bin": {
-    "create-canx": "./index.ts"
+    "create-canx": "bin/create-canx.js"
   },
   "files": [
+    "bin",
     "index.ts"
   ],
   "dependencies": {
@@ -15,7 +16,8 @@
     "prompts": "^2.4.2"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/prompts": "^2.4.9"
   },
   "publishConfig": {
     "access": "public"
