@@ -37,12 +37,18 @@ function parseArgs(args: string[]) {
 
 // Project files generators
 function getPackageJson(options: ProjectOptions) {
-  const deps: Record<string, string> = {
-    'canxjs': '^1.0.0',
+    'canxjs': 'latest',
+    'canx-ui': 'latest',
   };
   
   const devDeps: Record<string, string> = {
     '@types/bun': 'latest',
+    'tailwindcss': '^3.4.0',
+    'postcss': '^8.4.0',
+    'autoprefixer': '^10.4.0',
+    'clsx': '^2.0.0',
+    'tailwind-merge': '^2.0.0',
+    'concurrently': '^8.0.0',
   };
 
   if (options.language === 'typescript') {
@@ -59,9 +65,12 @@ function getPackageJson(options: ProjectOptions) {
     version: '1.0.0',
     type: 'module',
     scripts: {
-      dev: `bun --watch src/app.${options.language === 'typescript' ? 'ts' : 'js'}`,
-      start: `bun src/app.${options.language === 'typescript' ? 'ts' : 'js'}`,
-      build: `bun build src/app.${options.language === 'typescript' ? 'ts' : 'js'} --outdir dist --target bun`,
+      "dev:server": `bun --watch src/app.${options.language === 'typescript' ? 'ts' : 'js'}`,
+      "dev:css": "bunx tailwindcss -i ./src/index.css -o ./public/css/app.css --watch",
+      "dev": "concurrently \"bun run dev:server\" \"bun run dev:css\"",
+      "build:server": `bun build src/app.${options.language === 'typescript' ? 'ts' : 'js'} --outdir dist --target bun`,
+      "build:css": "bunx tailwindcss -i ./src/index.css -o ./public/css/app.css --minify",
+      "build": "bun run build:server && bun run build:css",
       test: 'bun test',
       ...(options.prisma ? {
         "db:migrate": "prisma migrate dev",
@@ -575,7 +584,7 @@ function createProject(options: ProjectOptions) {
   // Create directories
   const dirs = options.type === 'microservice' 
     ? ['src']
-    : ['src', 'src/controllers', 'src/models', 'src/views', 'src/routes', 'src/middlewares', 'src/config', 'public', 'storage'];
+    : ['src', 'src/controllers', 'src/models', 'src/views', 'src/resources/views/layouts', 'src/routes', 'src/middlewares', 'src/config', 'public', 'storage'];
 
   if (options.prisma) {
     dirs.push('prisma');
@@ -614,6 +623,11 @@ function createProject(options: ProjectOptions) {
       [`src/models/User.${ext}`, getUserModel(options)],
       [`src/config/database.${ext}`, getDatabaseConfig(options)],
       [`src/config/app.${ext}`, getAppConfig()],
+      [`src/config/database.${ext}`, getDatabaseConfig(options)],
+      [`src/config/app.${ext}`, getAppConfig()],
+      [`src/index.css`, getAppCss()],
+      [`tailwind.config.js`, getTailwindConfig()],
+      [`src/resources/views/layouts/admin.tsx`, getAdminLayout()],
     );
   }
 
