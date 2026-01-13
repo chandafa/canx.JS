@@ -241,6 +241,7 @@ export interface QueryBuilder<T> {
   update: (data: Partial<T>) => Promise<number>;
   delete: () => Promise<number>;
   raw: (sql: string, bindings?: unknown[]) => Promise<unknown>;
+  with: (...relations: string[]) => QueryBuilder<T>;
 }
 
 // ============================================

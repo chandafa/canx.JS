@@ -207,14 +207,25 @@ export function roles(...allowedRoles: string[]): MiddlewareHandler {
 // Session-based Auth
 // ============================================
 
-interface Session {
+// ============================================
+// Session-based Auth
+// ============================================
+
+export interface Session {
   id: string;
   userId: string | number;
   data: Record<string, unknown>;
   expiresAt: number;
 }
 
-class SessionStore {
+export interface SessionDriver {
+  create(userId: string | number, data: Record<string, unknown>, maxAge: number): Promise<Session> | Session;
+  get(id: string): Promise<Session | null> | Session | null;
+  destroy(id: string): Promise<boolean> | boolean;
+  cleanup(): Promise<void> | void;
+}
+
+export class MemorySessionDriver implements SessionDriver {
   private sessions: Map<string, Session> = new Map();
 
   generateId(): string {
@@ -254,13 +265,49 @@ class SessionStore {
   }
 }
 
+// Avoid circular dependency issues by importing types only if needed
+import { DatabaseSessionDriver } from './drivers/DatabaseSessionDriver';
+
+export class SessionStore {
+  private driver: SessionDriver;
+
+  constructor(driver?: SessionDriver) {
+    this.driver = driver || new MemorySessionDriver();
+  }
+  
+  // Method to easily switch to database
+  useDatabase() {
+    this.driver = new DatabaseSessionDriver();
+  }
+
+  use(driver: SessionDriver) {
+    this.driver = driver;
+  }
+
+  async create(userId: string | number, data: Record<string, unknown> = {}, maxAge = 86400000): Promise<Session> {
+    return this.driver.create(userId, data, maxAge);
+  }
+
+  async get(id: string): Promise<Session | null> {
+    return this.driver.get(id);
+  }
+
+  async destroy(id: string): Promise<boolean> {
+    return this.driver.destroy(id);
+  }
+
+  async cleanup(): Promise<void> {
+    return this.driver.cleanup();
+  }
+}
+
 export const sessionStore = new SessionStore();
 
 export function sessionAuth(cookieName = 'canx_session'): MiddlewareHandler {
   return async (req, res, next) => {
     const sessionId = req.cookie(cookieName);
     if (sessionId) {
-      const session = sessionStore.get(sessionId);
+      const session = await sessionStore.get(sessionId);
       if (session) {
         req.context.set('session', session);
         req.context.set('user', { sub: session.userId, ...session.data });
@@ -295,4 +342,5 @@ export const auth = {
   sessions: sessionStore,
 };
 
+export { DatabaseSessionDriver } from './drivers/DatabaseSessionDriver';
 export default auth;

@@ -77,6 +77,11 @@ export function validate(data: Record<string, unknown>, schema: ValidationSchema
       if (name !== 'required' && (value === undefined || value === null || value === '')) {
         continue;
       }
+      
+      // Skip async rules
+      if (['unique', 'exists'].includes(name)) {
+        continue;
+      }
 
       let valid = false;
       if (validators[name]) {
@@ -105,8 +110,125 @@ export function validate(data: Record<string, unknown>, schema: ValidationSchema
   return { valid: errors.size === 0, errors, data: validData };
 }
 
-export function validateAsync(data: Record<string, unknown>, schema: ValidationSchema): Promise<ValidationResult> {
-  return Promise.resolve(validate(data, schema));
+import { query } from '../mvc/Model';
+
+type AsyncValidatorFn = (value: unknown, param?: string) => Promise<boolean>;
+
+const asyncValidators: Record<string, AsyncValidatorFn> = {
+  unique: async (v, p) => {
+    if (!p) return false;
+    const [table, column, exceptId, idColumn = 'id'] = p.split(',').map(s => s.trim());
+    
+    let sql = `SELECT COUNT(*) as count FROM ${table} WHERE ${column} = ?`;
+    const params: any[] = [v];
+    
+    if (exceptId) {
+      sql += ` AND ${idColumn} != ?`;
+      params.push(exceptId);
+    }
+    
+    
+    
+    try {
+      const rows = await query<{count: number}>(sql, params);
+      return (rows[0]?.count || 0) === 0;
+    } catch (e) {
+      console.error('[Validator] Database error in unique:', e);
+      return false;
+    }
+  },
+  
+  exists: async (v, p) => {
+    if (!p) return false;
+    const [table, column = 'id'] = p.split(',').map(s => s.trim());
+    
+    const sql = `SELECT COUNT(*) as count FROM ${table} WHERE ${column} = ?`;
+    
+    try {
+      const rows = await query<{count: number}>(sql, [v]);
+      return (rows[0]?.count || 0) > 0;
+    } catch (e) {
+      console.error('[Validator] Database error in exists:', e);
+      return false;
+    }
+  },
+};
+
+const defaultAsyncMessages: Record<string, string> = {
+  unique: 'Field {field} has already been taken',
+  exists: 'Selected {field} is invalid',
+};
+
+export async function validateAsync(data: Record<string, unknown>, schema: ValidationSchema): Promise<ValidationResult> {
+  const errors = new Map<string, string[]>();
+  const validData: Record<string, unknown> = {};
+
+  // Run sync validation first
+  const syncResult = validate(data, schema);
+  if (!syncResult.valid) {
+    // If sync validation fails, we might still want to run async, 
+    // but usually if format is wrong, checking DB is waste.
+    // However, mixing errors is good.
+    // Let's copy errors
+    syncResult.errors.forEach((msgs, field) => errors.set(field, msgs));
+  } else {
+    Object.assign(validData, syncResult.data);
+  }
+
+  // Check async rules
+  for (const [field, rules] of Object.entries(schema)) {
+    const value = data[field];
+    
+    // Get rules list
+    let ruleList: ValidationRule[];
+    let customMessages: Record<string, string> = {};
+
+    if (Array.isArray(rules)) {
+      ruleList = rules;
+    } else if (typeof rules === 'object') {
+      ruleList = rules.rules;
+      customMessages = rules.messages || {};
+    } else {
+      ruleList = [rules];
+    }
+    
+    for (const rule of ruleList) {
+      const { name, param } = parseRule(rule);
+      
+      // We only care about async validators here
+      // And we skip if value is empty/null (unless it's required, but sync validate handled required)
+      if (
+        !asyncValidators[name] || 
+        (value === undefined || value === null || value === '')
+      ) {
+        continue;
+      }
+
+      // If sync validation already failed for this field, usually we skip checking DB
+      if (errors.has(field)) continue;
+
+      try {
+          const valid = await asyncValidators[name](value, param);
+          
+          if (!valid) {
+            const msg = customMessages[name] || defaultAsyncMessages[name] || defaultMessages[name] || `Validation failed for {field}`;
+            const finalMsg = msg.replace('{field}', field).replace('{param}', param || '');
+            
+            const existing = errors.get(field) || [];
+            existing.push(finalMsg);
+            errors.set(field, existing);
+          }
+      } catch (err) {
+          console.error('[Validator] Unexpected error in validateAsync', err);
+      }
+    }
+    
+    if (!errors.has(field) && value !== undefined) {
+      validData[field] = value;
+    }
+  }
+
+  return { valid: errors.size === 0, errors, data: validData };
 }
 
 // Quick validators

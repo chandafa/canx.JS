@@ -56,6 +56,7 @@ export {
   roles,
   sessionAuth,
   sessionStore,
+  DatabaseSessionDriver,
 } from './auth/Auth';
 
 // ============================================

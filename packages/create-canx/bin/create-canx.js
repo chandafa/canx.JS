@@ -1,2 +1,2 @@
 #!/usr/bin/env bun
-import "../index.ts";
+import "../dist/index.js";

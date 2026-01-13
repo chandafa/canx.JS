@@ -110,11 +110,33 @@ class User extends Model {
   static tableName = "users";
 }
 
-const users = await User.query()
   .where("active", "=", true)
   .orderBy("created_at", "desc")
   .limit(10)
   .get();
+
+// Eager Loading (N+1 Solution)
+const users = await User.with('posts', 'profile').get();
+```
+
+### 🔐 Built-in Authentication & Sessions
+
+Secure session management with Database, File, or Redis drivers.
+
+```typescript
+import { auth, sessionAuth, DatabaseSessionDriver } from "canxjs";
+
+// Use Database Driver for persistence
+auth.sessions.use(new DatabaseSessionDriver());
+
+app.post("/login", async (req, res) => {
+  const session = await auth.sessions.create(user.id, { role: "admin" });
+  return res.cookie("session_id", session.id).json({ status: "ok" });
+});
+
+app.get("/profile", sessionAuth, (req, res) => {
+  return res.json({ user: req.context.get("user") });
+});
 ```
 
 ### 🎨 Native JSX Views

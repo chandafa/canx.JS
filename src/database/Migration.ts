@@ -2,9 +2,9 @@
  * CanxJS Migrations - Database schema management
  */
 
-import { query, execute } from '../mvc/Model';
+import { query, execute, getCurrentDriver } from '../mvc/Model';
 
-interface Migration {
+export interface Migration {
   name: string;
   up: () => Promise<void>;
   down: () => Promise<void>;
@@ -140,6 +140,11 @@ class TableBuilder {
     return this;
   }
 
+  primary(): this {
+    if (this.columns.length) this.columns[this.columns.length - 1].primary = true;
+    return this;
+  }
+
   index(): this {
     if (this.columns.length) this.columns[this.columns.length - 1].index = true;
     return this;
@@ -165,18 +170,26 @@ class TableBuilder {
 
   // Build SQL
   toSQL(): string {
+    const driver = getCurrentDriver();
+    
     const cols = this.columns.map(col => {
       let sql = `\`${col.name}\` `;
       
       switch (col.type) {
-        case 'id': sql += 'BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY'; break;
+        case 'id': 
+          if (driver === 'sqlite') {
+             sql += 'INTEGER PRIMARY KEY AUTOINCREMENT';
+          } else {
+             sql += 'BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY'; 
+          }
+          break;
         case 'string': sql += `VARCHAR(${col.length || 255})`; break;
         case 'text': sql += 'TEXT'; break;
-        case 'int': sql += col.unsigned ? 'INT UNSIGNED' : 'INT'; break;
-        case 'bigint': sql += col.unsigned ? 'BIGINT UNSIGNED' : 'BIGINT'; break;
+        case 'int': sql += col.unsigned ? (driver === 'sqlite' ? 'INTEGER' : 'INT UNSIGNED') : 'INT'; break;
+        case 'bigint': sql += col.unsigned ? (driver === 'sqlite' ? 'INTEGER' : 'BIGINT UNSIGNED') : 'BIGINT'; break;
         case 'float': sql += 'FLOAT'; break;
         case 'decimal': sql += `DECIMAL(${col.length || 10}, 2)`; break;
-        case 'boolean': sql += 'TINYINT(1)'; break;
+        case 'boolean': sql += driver === 'sqlite' ? 'INTEGER' : 'TINYINT(1)'; break;
         case 'date': sql += 'DATE'; break;
         case 'datetime': sql += 'DATETIME'; break;
         case 'timestamp': sql += 'TIMESTAMP'; break;
@@ -191,6 +204,7 @@ class TableBuilder {
           sql += ` DEFAULT ${def}`;
         }
         if (col.unique) sql += ' UNIQUE';
+        if (col.primary) sql += ' PRIMARY KEY';
       }
 
       return sql;
@@ -204,10 +218,14 @@ class TableBuilder {
       if (ref.onUpdate) fk += ` ON UPDATE ${ref.onUpdate}`;
       return fk;
     });
+    
+    // SQLite doesn't support engine configuration
+    const suffix = driver === 'sqlite' ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4';
 
-    return `CREATE TABLE \`${this.tableName}\` (\n  ${[...cols, ...fks].join(',\n  ')}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`;
+    return `CREATE TABLE \`${this.tableName}\` (\n  ${[...cols, ...fks].join(',\n  ')}\n)${suffix}`;
   }
 }
+
 
 // ============================================
 // Schema Facade
@@ -236,11 +254,22 @@ export const Schema = {
   },
 
   async hasTable(table: string): Promise<boolean> {
+    const driver = getCurrentDriver();
+    if (driver === 'sqlite') {
+      const result = await query<{ count: number }>(`SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='${table}'`);
+      // @ts-ignore
+      return (result[0]?.count || result[0]?.['count(*)']) > 0;
+    }
     const result = await query<any>(`SHOW TABLES LIKE '${table}'`);
     return result.length > 0;
   },
 
   async hasColumn(table: string, column: string): Promise<boolean> {
+    const driver = getCurrentDriver();
+    if (driver === 'sqlite') {
+      const result = await query(`PRAGMA table_info(${table})`);
+      return (result as any[]).some(c => c.name === column);
+    }
     const result = await query<any>(`SHOW COLUMNS FROM \`${table}\` LIKE '${column}'`);
     return result.length > 0;
   },
@@ -295,7 +324,7 @@ class Migrator {
       console.log(`[Migration] Running: ${migration.name}`);
       await migration.up();
       await execute(
-        'INSERT INTO migrations (name, batch, executed_at) VALUES (?, ?, NOW())',
+        'INSERT INTO migrations (name, batch, executed_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
         [migration.name, batch]
       );
     }
