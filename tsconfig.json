@@ -8,6 +8,8 @@
     "jsx": "react-jsx",
     "jsxImportSource": "canxjs",
     "strict": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "skipLibCheck": true,
     "noEmit": false,
     "declaration": true,
@@ -21,7 +23,9 @@
       "@core/*": ["./src/core/*"],
       "@mvc/*": ["./src/mvc/*"],
       "@features/*": ["./src/features/*"],
-      "@utils/*": ["./src/utils/*"]
+      "@utils/*": ["./src/utils/*"],
+      "canxjs/jsx-runtime": ["./src/mvc/jsx-runtime.ts"],
+      "canxjs/jsx-dev-runtime": ["./src/mvc/jsx-runtime.ts"]
     },
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,

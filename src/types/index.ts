@@ -6,13 +6,10 @@
 // Global JSX namespace for type compatibility
 declare global {
   namespace JSX {
-    interface Element {
-      type: string | Function;
-      props: Record<string, unknown>;
-      children?: unknown[];
-    }
+    // In CanxJS, JSX components return HTML strings directly (SSR)
+    type Element = string;
     interface IntrinsicElements {
-      [elemName: string]: unknown;
+      [elemName: string]: any;
     }
   }
 }
@@ -415,6 +412,8 @@ export interface RouterInstance {
   all: (path: string, ...handlers: (MiddlewareHandler | RouteHandler)[]) => RouterInstance;
   group: (prefix: string, callback: (router: RouterInstance) => void) => RouterInstance;
   middleware: (...handlers: MiddlewareHandler[]) => RouterInstance;
+  /** Register a controller class */
+  controller: (path: string, controller: any) => RouterInstance;
 }
 
 // ============================================

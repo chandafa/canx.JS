@@ -2,7 +2,7 @@ import type { QueueConfig, QueueDriver, Job } from './drivers/types';
 import { MemoryDriver } from './drivers/MemoryDriver';
 
 export class Queue {
-  private driver: QueueDriver;
+  public driver: QueueDriver;
   private config: QueueConfig;
   private running: boolean = false;
   private processing: boolean = false;
@@ -124,6 +124,31 @@ export class Queue {
       }
     }
   }
+
+  /**
+   * Stats and maintenance
+   */
+  async getStats() {
+    return this.driver.getStats();
+  }
+
+  async getFailed(offset?: number, limit?: number) {
+    return this.driver.getFailed(offset, limit);
+  }
+
+  async getPending(offset?: number, limit?: number) {
+    return this.driver.getPending(offset, limit);
+  }
+
+  async retry(jobId: string) {
+    return this.driver.retry(jobId);
+  }
+
+  async clear() {
+    return this.driver.clear();
+  }
+
+
 
   private parseDelay(delay: string): number {
     const match = delay.match(/^(\d+)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hour|hours|d|day|days)$/i);

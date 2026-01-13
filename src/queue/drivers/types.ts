@@ -31,7 +31,14 @@ export interface QueueDriver {
   fail(job: Job, error: Error): Promise<void>;
   release(job: Job, delay: number): Promise<void>; // Retry
   
-  // Stats/Maintenance
+  // Maintenance & Stats
   clear(): Promise<void>;
   size(): Promise<number>;
+  
+  // Dashboard Support
+  getFailed(offset?: number, limit?: number): Promise<Job[]>;
+  getPending(offset?: number, limit?: number): Promise<Job[]>;
+  getStats(): Promise<{ pending: number; failed: number; processed: number }>;
+  retry(jobId: string): Promise<void>;
+  remove(jobId: string): Promise<void>;
 }

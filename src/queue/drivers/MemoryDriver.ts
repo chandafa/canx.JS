@@ -88,4 +88,50 @@ export class MemoryDriver implements QueueDriver {
   async size(): Promise<number> {
     return this.pending.length + this.delayed.length;
   }
+
+  // Dashboard Methods
+  async getFailed(offset: number = 0, limit: number = 20): Promise<Job[]> {
+    const failed = Array.from(this.jobs.values())
+        .filter(job => job.status === 'failed')
+        .sort((a, b) => b.createdAt - a.createdAt);
+    return failed.slice(offset, offset + limit);
+  }
+
+  async getPending(offset: number = 0, limit: number = 20): Promise<Job[]> {
+     const pending = Array.from(this.jobs.values())
+        .filter(job => job.status === 'pending')
+        .sort((a, b) => a.createdAt - b.createdAt);
+     return pending.slice(offset, offset + limit);
+  }
+
+  async getStats(): Promise<{ pending: number; failed: number; processed: number }> {
+     let pending = 0;
+     let failed = 0;
+     let processed = 0;
+     for (const job of this.jobs.values()) {
+         if (job.status === 'pending') pending++;
+         if (job.status === 'failed') failed++;
+         if (job.status === 'completed') processed++;
+     }
+     return { pending, failed, processed };
+  }
+
+  async retry(jobId: string): Promise<void> {
+    const job = this.jobs.get(jobId);
+    if (!job || job.status !== 'failed') return;
+    
+    // Reset to pending
+    job.status = 'pending';
+    job.error = undefined;
+    job.createdAt = Date.now(); // Optional: reset time or keep original
+    
+    // Add back to pending queue
+    this.pending.push(job.id);
+  }
+
+  async remove(jobId: string): Promise<void> {
+    this.jobs.delete(jobId);
+    this.pending = this.pending.filter(id => id !== jobId);
+    this.delayed = this.delayed.filter(d => d.id !== jobId);
+  }
 }

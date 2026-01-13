@@ -30,7 +30,7 @@ export { TestClient } from './testing/TestClient';
 // ============================================
 export { BaseController, Controller, Get, Post, Put, Patch, Delete, Middleware, getControllerMeta } from './mvc/Controller';
 export { Model, initDatabase, closeDatabase, query, execute } from './mvc/Model';
-export { jsx, jsxs, Fragment, html, render, renderPage, createLayout } from './mvc/View';
+export { jsx, jsxs, Fragment, html, render, renderPage, createLayout, View } from './mvc/View';
 
 // ============================================
 // Feature Exports
@@ -70,6 +70,7 @@ export { seeder, fake, factory as seederFactory, defineSeeder } from './database
 export { queue, createQueue } from './queue/Queue';
 export { RedisDriver } from './queue/drivers/RedisDriver';
 export { MemoryDriver } from './queue/drivers/MemoryDriver';
+export { QueueController } from './queue/ui/QueueController';
 
 // ============================================
 // Realtime Exports
@@ -181,6 +182,7 @@ export { Canx, createApp } from './Application';
 // Types
 // ============================================
 export type * from './types';
+export type { CanxRequest as Request, CanxResponse as Response } from './types';
 
 // ============================================
 // Default Export

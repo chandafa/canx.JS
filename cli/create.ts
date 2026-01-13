@@ -35,7 +35,7 @@ function getPackageJson(name: string, template: string) {
       test: 'bun test',
     },
     dependencies: {
-      canxjs: '^1.0.0',
+      canxjs: '^1.2.0',
     },
     devDependencies: {
       '@types/bun': 'latest',
@@ -118,10 +118,11 @@ function getWebRoutes() {
 import { HomeController } from '../controllers/HomeController';
 
 export function webRoutes(router: RouterInstance) {
-  const home = new HomeController();
+  // Traditional route definition
+  // router.get('/', (req, res) => home.index(req, res));
   
-  router.get('/', (req, res) => home.index(req, res));
-  router.get('/about', (req, res) => home.about(req, res));
+  // New Controller-based routing (v1.2.0+)
+  router.controller('/', HomeController);
 }
 `;
 }
@@ -154,31 +155,19 @@ export class HomeController extends BaseController {
   @Get('/')
   index(req: CanxRequest, res: CanxResponse) {
     const html = renderPage(
-      jsx('div', { className: 'container' },
-        jsx('h1', null, 'Welcome to CanxJS!'),
-        jsx('p', null, 'Ultra-fast async-first MVC framework for Bun'),
-        jsx('a', { href: '/about' }, 'About')
+      jsx('div', { className: 'container mx-auto px-4 py-8' },
+        jsx('h1', { className: 'text-4xl font-bold mb-4' }, 'Welcome to CanxJS!'),
+        jsx('p', { className: 'text-lg mb-4' }, 'Ultra-fast async-first MVC framework for Bun'),
+        jsx('div', { className: 'flex gap-4' },
+          jsx('a', { href: '/about', className: 'text-blue-500 hover:underline' }, 'About'),
+          jsx('a', { href: '/canx-queue', className: 'text-blue-500 hover:underline' }, 'Queue Dashboard')
+        )
       ),
       { title: 'Home - CanxJS' }
     );
     return res.html(html);
   }
 
-  @Get('/about')
-  about(req: CanxRequest, res: CanxResponse) {
-    const html = renderPage(
-      jsx('div', { className: 'container' },
-        jsx('h1', null, 'About CanxJS'),
-        jsx('ul', null,
-          jsx('li', null, '🚀 Ultra-fast Bun runtime'),
-          jsx('li', null, '⚡ Async-first design'),
-          jsx('li', null, '🔥 HotWire real-time streaming'),
-          jsx('li', null, '🧠 Auto-caching layer')
-        ),
-        jsx('a', { href: '/' }, 'Back to Home')
-      ),
-      { title: 'About - CanxJS' }
-    );
     return res.html(html);
   }
 }

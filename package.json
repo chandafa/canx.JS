@@ -1,6 +1,6 @@
 {
   "name": "canxjs",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Ultra-fast async-first MVC backend framework for Bun runtime",
   "type": "module",
   "main": "./dist/index.js",
@@ -26,6 +26,14 @@
     "./view": {
       "import": "./dist/mvc/View.js",
       "types": "./dist/mvc/View.d.ts"
+    },
+    "./jsx-runtime": {
+      "import": "./dist/mvc/jsx-runtime.js",
+      "types": "./dist/mvc/jsx-runtime.d.ts"
+    },
+    "./jsx-dev-runtime": {
+      "import": "./dist/mvc/jsx-runtime.js",
+      "types": "./dist/mvc/jsx-runtime.d.ts"
     }
   },
   "bin": {

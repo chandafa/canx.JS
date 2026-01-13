@@ -82,4 +82,19 @@ export function renderPage(component: string | (() => string), options?: { title
   return html(render(component), options);
 }
 
-export default { jsx, jsxs, Fragment, html, render, renderPage, createLayout };
+// Helper to render a View with props
+export function View(component: any, props: Record<string, any> = {}): string {
+  // If component is a function (functional component), call it with props
+  if (typeof component === 'function') {
+      try {
+          const result = component(props);
+          return renderPage(() => result);
+      } catch (e) {
+          // Fallback if it's already a string or something else
+          return renderPage(() => String(component));
+      }
+  }
+  return renderPage(() => String(component));
+}
+
+export default { jsx, jsxs, Fragment, html, render, renderPage, createLayout, View };

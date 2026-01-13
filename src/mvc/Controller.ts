@@ -23,8 +23,8 @@ export function Controller(prefix: string = ''): ClassDecorator {
 }
 
 export function Middleware(...middlewares: MiddlewareHandler[]): MethodDecorator & ClassDecorator {
-  return (target: any, propertyKey?: string | symbol) => {
-    if (propertyKey) {
+  return (target: any, propertyKey?: string | symbol, descriptor?: PropertyDescriptor) => {
+    if (propertyKey !== undefined) {
       const meta = getControllerMeta(target);
       const existing = meta.routes.get(String(propertyKey)) || { method: 'GET' as HttpMethod, path: '', middlewares: [] };
       existing.middlewares.push(...middlewares);
@@ -38,7 +38,7 @@ export function Middleware(...middlewares: MiddlewareHandler[]): MethodDecorator
 
 function createMethodDecorator(method: HttpMethod) {
   return (path: string = ''): MethodDecorator => {
-    return (target: any, propertyKey: string | symbol) => {
+    return (target: any, propertyKey: string | symbol, descriptor: PropertyDescriptor) => {
       const meta = getControllerMeta(target);
       const existing = meta.routes.get(String(propertyKey)) || { method, path: '', middlewares: [] };
       existing.method = method;

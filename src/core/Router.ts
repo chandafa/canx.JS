@@ -11,6 +11,7 @@ import type {
   RouteParams,
   RouterInstance,
 } from '../types';
+import { getControllerMeta } from '../mvc/Controller';
 
 interface RadixNode {
   path: string;
@@ -120,6 +121,26 @@ export class Router implements RouterInstance {
   options(path: string, ...h: (MiddlewareHandler | RouteHandler)[]): RouterInstance { this.addRoute('OPTIONS', path, h.pop() as RouteHandler, h as MiddlewareHandler[]); return this; }
   head(path: string, ...h: (MiddlewareHandler | RouteHandler)[]): RouterInstance { this.addRoute('HEAD', path, h.pop() as RouteHandler, h as MiddlewareHandler[]); return this; }
   all(path: string, ...h: (MiddlewareHandler | RouteHandler)[]): RouterInstance { this.addRoute('ALL', path, h.pop() as RouteHandler, h as MiddlewareHandler[]); return this; }
+
+  controller(path: string, controllerClass: any): RouterInstance {
+    const meta = getControllerMeta(controllerClass.prototype);
+    const classPrefix = meta.prefix || '';
+
+    meta.routes.forEach((route, key) => {
+      // route.path might be empty or start with /
+      const routePath = route.path;
+      // Combine: router_prefix + user_path + class_prefix + method_path
+      // But user_path + class_prefix should be joined carefully.
+      // logic: normalized( path + classPrefix + routePath )
+      const fullPath = (path === '/' ? '' : path) + (classPrefix.startsWith('/') ? classPrefix : '/' + classPrefix) + (routePath.startsWith('/') ? routePath : '/' + routePath);
+      
+      // We assume the dispatcher can handle [Class, method] tuple if that's what we send.
+      // Based on starter kit usage, we form the tuple:
+      const handler = [controllerClass, key] as any;
+      this.addRoute(route.method, fullPath.replace(/\/\//g, '/'), handler, [...meta.middlewares, ...route.middlewares]);
+    });
+    return this;
+  }
 
   group(prefix: string, cb: (r: RouterInstance) => void): RouterInstance {
     const prev = this.prefix, prevMw = [...this.currentMiddlewares];
