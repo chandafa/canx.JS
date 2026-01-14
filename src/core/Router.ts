@@ -41,6 +41,33 @@ function createNode(path: string = ''): RadixNode {
   };
 }
 
+/**
+ * Resolve a controller tuple [ControllerClass, "methodName"] or regular handler function
+ * to an actual RouteHandler function
+ */
+function resolveHandler(handlerOrTuple: RouteHandler | [any, string]): RouteHandler {
+  // If it's already a function, return as-is
+  if (typeof handlerOrTuple === 'function') {
+    return handlerOrTuple;
+  }
+  
+  // If it's an array [ControllerClass, "methodName"], create handler
+  if (Array.isArray(handlerOrTuple) && handlerOrTuple.length === 2) {
+    const [ControllerClass, methodName] = handlerOrTuple;
+    const instance = new ControllerClass();
+    
+    return async (req: any, res: any) => {
+      if (typeof instance.setContext === 'function') {
+        instance.setContext(req, res);
+      }
+      return instance[methodName](req, res);
+    };
+  }
+  
+  // Fallback - shouldn't reach here but just in case
+  throw new Error(`Invalid handler: expected function or [Controller, "method"] tuple`);
+}
+
 export class Router implements RouterInstance {
   private trees: Map<HttpMethod, RadixNode> = new Map();
   private routerOptions: RouterOptions;
@@ -113,14 +140,14 @@ export class Router implements RouterInstance {
     return node.handler ? { handler: node.handler, middlewares: node.middlewares, params } : null;
   }
 
-  get(path: string, ...h: (MiddlewareHandler | RouteHandler)[]): RouterInstance { this.addRoute('GET', path, h.pop() as RouteHandler, h as MiddlewareHandler[]); return this; }
-  post(path: string, ...h: (MiddlewareHandler | RouteHandler)[]): RouterInstance { this.addRoute('POST', path, h.pop() as RouteHandler, h as MiddlewareHandler[]); return this; }
-  put(path: string, ...h: (MiddlewareHandler | RouteHandler)[]): RouterInstance { this.addRoute('PUT', path, h.pop() as RouteHandler, h as MiddlewareHandler[]); return this; }
-  patch(path: string, ...h: (MiddlewareHandler | RouteHandler)[]): RouterInstance { this.addRoute('PATCH', path, h.pop() as RouteHandler, h as MiddlewareHandler[]); return this; }
-  delete(path: string, ...h: (MiddlewareHandler | RouteHandler)[]): RouterInstance { this.addRoute('DELETE', path, h.pop() as RouteHandler, h as MiddlewareHandler[]); return this; }
-  options(path: string, ...h: (MiddlewareHandler | RouteHandler)[]): RouterInstance { this.addRoute('OPTIONS', path, h.pop() as RouteHandler, h as MiddlewareHandler[]); return this; }
-  head(path: string, ...h: (MiddlewareHandler | RouteHandler)[]): RouterInstance { this.addRoute('HEAD', path, h.pop() as RouteHandler, h as MiddlewareHandler[]); return this; }
-  all(path: string, ...h: (MiddlewareHandler | RouteHandler)[]): RouterInstance { this.addRoute('ALL', path, h.pop() as RouteHandler, h as MiddlewareHandler[]); return this; }
+  get(path: string, ...h: (MiddlewareHandler | RouteHandler | [any, string])[]): RouterInstance { this.addRoute('GET', path, resolveHandler(h.pop() as RouteHandler | [any, string]), h as MiddlewareHandler[]); return this; }
+  post(path: string, ...h: (MiddlewareHandler | RouteHandler | [any, string])[]): RouterInstance { this.addRoute('POST', path, resolveHandler(h.pop() as RouteHandler | [any, string]), h as MiddlewareHandler[]); return this; }
+  put(path: string, ...h: (MiddlewareHandler | RouteHandler | [any, string])[]): RouterInstance { this.addRoute('PUT', path, resolveHandler(h.pop() as RouteHandler | [any, string]), h as MiddlewareHandler[]); return this; }
+  patch(path: string, ...h: (MiddlewareHandler | RouteHandler | [any, string])[]): RouterInstance { this.addRoute('PATCH', path, resolveHandler(h.pop() as RouteHandler | [any, string]), h as MiddlewareHandler[]); return this; }
+  delete(path: string, ...h: (MiddlewareHandler | RouteHandler | [any, string])[]): RouterInstance { this.addRoute('DELETE', path, resolveHandler(h.pop() as RouteHandler | [any, string]), h as MiddlewareHandler[]); return this; }
+  options(path: string, ...h: (MiddlewareHandler | RouteHandler | [any, string])[]): RouterInstance { this.addRoute('OPTIONS', path, resolveHandler(h.pop() as RouteHandler | [any, string]), h as MiddlewareHandler[]); return this; }
+  head(path: string, ...h: (MiddlewareHandler | RouteHandler | [any, string])[]): RouterInstance { this.addRoute('HEAD', path, resolveHandler(h.pop() as RouteHandler | [any, string]), h as MiddlewareHandler[]); return this; }
+  all(path: string, ...h: (MiddlewareHandler | RouteHandler | [any, string])[]): RouterInstance { this.addRoute('ALL', path, resolveHandler(h.pop() as RouteHandler | [any, string]), h as MiddlewareHandler[]); return this; }
 
   controller(path: string, controllerClass: any): RouterInstance {
     const meta = getControllerMeta(controllerClass.prototype);
@@ -136,7 +163,16 @@ export class Router implements RouterInstance {
       
       // We assume the dispatcher can handle [Class, method] tuple if that's what we send.
       // Based on starter kit usage, we form the tuple:
-      const handler = [controllerClass, key] as any;
+      // Create a singleton instance for this route group (matching Application.ts behavior)
+      const instance = new controllerClass();
+      
+      const handler = async (req: any, res: any) => {
+        if (typeof instance.setContext === 'function') {
+          instance.setContext(req, res);
+        }
+        return instance[key](req, res);
+      };
+
       this.addRoute(route.method, fullPath.replace(/\/\//g, '/'), handler, [...meta.middlewares, ...route.middlewares]);
     });
     return this;

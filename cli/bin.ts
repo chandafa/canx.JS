@@ -16,7 +16,7 @@ const VERSION = '1.0.0';
 // ============================================
 
 function getControllerTemplate(name: string, className: string) {
-  return `import { BaseController, Controller, Get, Post, Put, Delete, Middleware } from 'canxjs';
+  return `import { BaseController, Controller, Get, Post, Put, Delete, Middleware, View } from 'canxjs';
 import type { CanxRequest, CanxResponse } from 'canxjs';
 
 @Controller('/${name.toLowerCase()}s')

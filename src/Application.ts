@@ -90,6 +90,10 @@ export class Canx implements CanxApplication {
     for (const plugin of this.plugins) {
       await plugin.install(this);
     }
+    
+    // Start Scheduler
+    const { scheduler } = await import('./features/Scheduler');
+    scheduler.start();
 
     this.server = new Server(this.config, (req) => this.handle(req));
     await this.server.listen(callback);
@@ -113,7 +117,25 @@ export class Canx implements CanxApplication {
     Object.assign(req.params, match.params);
 
     // Execute middleware pipeline and handler
-    return this.pipeline.execute(req, res, match.middlewares, () => match.handler(req, res));
+    const result = await this.pipeline.execute(req, res, match.middlewares, () => match.handler(req, res));
+    
+    // If handler returns string (e.g., from View()), wrap in HTML Response
+    if (typeof result === 'string') {
+      return res.html(result);
+    }
+    
+    // If result is already a Response, return it
+    if (result instanceof Response) {
+      return result;
+    }
+    
+    // If result is an object/array, return as JSON
+    if (result !== null && result !== undefined) {
+      return res.json(result);
+    }
+    
+    // Fallback: empty 204 response
+    return res.empty();
   }
 
   /**
@@ -123,6 +145,10 @@ export class Canx implements CanxApplication {
     if (this.server) {
       await this.server.close();
       this.server = null;
+      
+      // Stop Scheduler
+      const { scheduler } = await import('./features/Scheduler');
+      scheduler.stop();
     }
   }
 

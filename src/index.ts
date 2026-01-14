@@ -39,6 +39,7 @@ export { hotWire, createHotWire } from './features/HotWire';
 export { autoCache, autoCacheMiddleware, createAutoCache } from './features/AutoCache';
 export { RequestBatcher, createBatcher } from './features/RequestBatcher';
 export { jitCompiler, createJITCompiler, JITCompiler } from './features/JITCompiler';
+export { scheduler, createScheduler, Scheduler } from './features/Scheduler';
 
 // ============================================
 // Auth Exports
