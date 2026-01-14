@@ -12,6 +12,7 @@ import type {
   CookieOptions,
   CorsConfig,
 } from '../types';
+import { ErrorHandler } from './ErrorHandler';
 
 /**
  * Generate unique request ID
@@ -427,89 +428,80 @@ export class Server {
       ? { origin: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] }
       : this.config.cors || null;
 
-    this.server = Bun.serve({
-      port: this.config.port,
-      hostname: this.config.hostname,
-      development: this.config.development,
-      
-      tls: this.config.tls ? {
-        cert: Bun.file(this.config.tls.cert),
-        key: Bun.file(this.config.tls.key),
-        ca: this.config.tls.ca ? Bun.file(this.config.tls.ca) : undefined,
-        passphrase: this.config.tls.passphrase,
-      } : undefined,
-
-      fetch: async (req: Request) => {
-        const startTime = performance.now();
+    try {
+      this.server = Bun.serve({
+        port: this.config.port,
+        hostname: this.config.hostname,
+        development: this.config.development,
         
-        try {
-          // Handle CORS preflight
-          if (corsConfig && req.method === 'OPTIONS') {
-            const origin = req.headers.get('origin') || '';
-            const headers = getCorsHeaders(corsConfig, origin);
-            return new Response(null, { status: 204, headers });
-          }
+        tls: this.config.tls ? {
+          cert: Bun.file(this.config.tls.cert),
+          key: Bun.file(this.config.tls.key),
+          ca: this.config.tls.ca ? Bun.file(this.config.tls.ca) : undefined,
+          passphrase: this.config.tls.passphrase,
+        } : undefined,
 
-          // Handle static files
-          if (this.config.static) {
-            const url = new URL(req.url);
-            if (url.pathname.startsWith('/static/')) {
-              const filePath = `${this.config.static}${url.pathname.replace('/static', '')}`;
-              const file = Bun.file(filePath);
-              if (await file.exists()) {
-                return new Response(file);
+        fetch: async (req: Request) => {
+          const startTime = performance.now();
+          
+          try {
+            // Handle CORS preflight
+            if (corsConfig && req.method === 'OPTIONS') {
+              const origin = req.headers.get('origin') || '';
+              const headers = getCorsHeaders(corsConfig, origin);
+              return new Response(null, { status: 204, headers });
+            }
+
+            // Handle static files
+            if (this.config.static) {
+              const url = new URL(req.url);
+              if (url.pathname.startsWith('/static/')) {
+                const filePath = `${this.config.static}${url.pathname.replace('/static', '')}`;
+                const file = Bun.file(filePath);
+                if (await file.exists()) {
+                  return new Response(file);
+                }
               }
             }
-          }
 
-          // Main request handling
-          let response = await this.requestHandler(req);
+            // Main request handling
+            let response = await this.requestHandler(req);
 
-          // Add CORS headers
-          if (corsConfig) {
-            const origin = req.headers.get('origin') || '';
-            const corsHeaders = getCorsHeaders(corsConfig, origin);
-            corsHeaders.forEach((value, key) => {
-              response.headers.set(key, value);
-            });
-          }
-
-          // Add timing header in development
-          if (this.config.development) {
-            const duration = (performance.now() - startTime).toFixed(2);
-            response.headers.set('X-Response-Time', `${duration}ms`);
-          }
-
-          return response;
-        } catch (error) {
-          console.error('[CanxJS Error]', error);
-          return new Response(
-            JSON.stringify({ error: 'Internal Server Error' }),
-            { 
-              status: 500,
-              headers: { 'Content-Type': 'application/json' }
+            // Add CORS headers
+            if (corsConfig) {
+              const origin = req.headers.get('origin') || '';
+              const corsHeaders = getCorsHeaders(corsConfig, origin);
+              corsHeaders.forEach((value, key) => {
+                response.headers.set(key, value);
+              });
             }
-          );
-        }
-      },
 
-      error(error: Error) {
-        console.error('[CanxJS Server Error]', error);
-        return new Response(
-          JSON.stringify({ error: error.message }),
-          { 
-            status: 500,
-            headers: { 'Content-Type': 'application/json' }
+            // Add timing header in development
+            if (this.config.development) {
+              const duration = (performance.now() - startTime).toFixed(2);
+              response.headers.set('X-Response-Time', `${duration}ms`);
+            }
+
+            return response;
+
+          } catch (error: any) {
+            return ErrorHandler.handle(error, req, this.config.development);
           }
-        );
-      },
-    });
+        },
 
-    if (callback) {
-      callback();
-    }
+        error(error: Error) {
+          // Can't access req object easily here in Bun's error handler, 
+          // but it catches low-level server errors
+          console.error('[CanxJS Server Error]', error);
+          return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+        },
+      });
 
-    console.log(`
+      if (callback) {
+        callback();
+      }
+
+      console.log(`
 ╔══════════════════════════════════════════════════════════╗
 ║                                                          ║
 ║   🚀 CanxJS Server running                               ║
@@ -518,7 +510,28 @@ export class Server {
 ║   → Mode:    ${this.config.development ? 'Development' : 'Production'}                              ║
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝
-    `);
+      `);
+    } catch (error: any) {
+      if (error.code === 'EADDRINUSE' || error.message?.includes('EADDRINUSE') || error.syscall === 'listen') {
+        console.error(`
+\x1b[31m╔══════════════════════════════════════════════════════════╗
+║                                                          ║
+║   ❌ ERROR: Port ${this.config.port} is already in use                  ║
+║                                                          ║
+║   It looks like another application is already using     ║
+║   this port. Please try:                                 ║
+║                                                          ║
+║   1. Stopping the other process                          ║
+║   2. Using a different port in your app config           ║
+║      (e.g., app.create({ port: ${Number(this.config.port) + 1} }))              ║
+║                                                          ║
+╚══════════════════════════════════════════════════════════╝\x1b[0m
+        `);
+        process.exit(1);
+      } else {
+        throw error;
+      }
+    }
   }
 
   /**

@@ -115,6 +115,11 @@ export { ResponseBuilder, response } from './utils/Response';
 export { RequestParser, parseRequest } from './utils/Request';
 
 // Error Handling
+export { ErrorHandler } from './core/ErrorHandler';
+export { CanxException } from './core/exceptions/CanxException';
+export { HttpException } from './core/exceptions/HttpException';
+export { NotFoundException } from './core/exceptions/NotFoundException';
+export { ValidationException } from './core/exceptions/ValidationException';
 export {
   CanxError,
   ValidationError,
