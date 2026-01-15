@@ -59,6 +59,10 @@ class TestRequest {
     }
     return res;
   }
+
+  async assertStatus(status: number) {
+    return this.expect(status);
+  }
 }
 
 class TestResponse {
@@ -84,5 +88,9 @@ class TestResponse {
       throw new Error(`Expected JSON ${strExpected}, but got ${strData}`);
     }
     return this;
+  }
+
+  async assertJson(expected: any) {
+    return this.expectJson(expected);
   }
 }

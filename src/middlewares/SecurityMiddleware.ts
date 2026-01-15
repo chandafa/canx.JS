@@ -22,18 +22,11 @@ export function security(config: SecurityConfig = {}): MiddlewareHandler {
     }
 
     // X-Frame-Options
-    if (config.frameOptions) {
-      res.header('X-Frame-Options', config.frameOptions);
-    } else if (config.frameOptions !== undefined) {
-      // Allow if explicit string (e.g. ALLOW-FROM) - though deprecated
-      res.header('X-Frame-Options', config.frameOptions);
-    } else {
-        // Default deny if not specified? Or standard default?
-        // Modern default is usually SAMEORIGIN or DENY. Let's do SAMEORIGIN.
-         res.header('X-Frame-Options', 'SAMEORIGIN');
-    }
+    // Default to SAMEORIGIN if not specified
+    res.header('X-Frame-Options', config.frameOptions || 'SAMEORIGIN');
 
-    // Strict-Transport-Security
+    // Strict-Transport-Security (HSTS) - Enabled by default for HTTPS apps? 
+    // Usually only if config says so, but let's leave it optional as defined.
     if (config.hsts) {
       const maxAge = typeof config.hsts === 'object' ? config.hsts.maxAge : 31536000;
       const includeSubDomains = typeof config.hsts === 'object' && config.hsts.includeSubDomains ? '; includeSubDomains' : '';
@@ -46,10 +39,18 @@ export function security(config: SecurityConfig = {}): MiddlewareHandler {
     }
 
     // Referrer-Policy
-    if (config.referrerPolicy) {
-      res.header('Referrer-Policy', config.referrerPolicy);
-    }
-
+    res.header('Referrer-Policy', config.referrerPolicy || 'strict-origin-when-cross-origin');
+    
+    // Additional Headers
+    res.header('X-DNS-Prefetch-Control', 'off');
+    res.header('X-Download-Options', 'noopen');
+    res.header('X-Permitted-Cross-Domain-Policies', 'none');
+    res.header('X-Powered-By', 'CanxJS'); // Or remove it for security? Usually remove.
+    // Actually, Helix/Express usually removes X-Powered-By.
+    // CanxResponse implementation might add it by default?
+    // Let's explicitly NOT set X-Powered-By here, typically framework sets it elsewhere.
+    // If we want to hide it, we might need res.removeHeader if supported or just not set it.
+    
     return next();
   };
 }

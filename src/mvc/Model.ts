@@ -196,6 +196,12 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
     return this;
   }
   
+  whereRaw(sql: string, bindings: any[] = []): this {
+    this.whereClauses.push(sql);
+    this.bindings.push(...bindings);
+    return this;
+  }
+  
   // Eager Loading
   with(...relations: string[]): this {
     this.withRelations.push(...relations);
@@ -372,6 +378,47 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
   }
 
   async raw(sql: string, bindings: any[] = []): Promise<any> { return query(sql, bindings); }
+
+  /**
+   * Paginate results
+   * @param page - Current page (1-indexed)
+   * @param perPage - Items per page
+   */
+  async paginate(page: number = 1, perPage: number = 15): Promise<{
+    data: T[];
+    total: number;
+    perPage: number;
+    currentPage: number;
+    lastPage: number;
+    from: number;
+    to: number;
+  }> {
+    // Get total count
+    const countBuilder = new QueryBuilderImpl<T>(this.table, this.modelClass);
+    countBuilder.whereClauses = [...this.whereClauses];
+    countBuilder.bindings = [...this.bindings];
+    const total = await countBuilder.count();
+    
+    // Calculate pagination
+    const lastPage = Math.ceil(total / perPage) || 1;
+    const currentPage = Math.max(1, Math.min(page, lastPage));
+    const offset = (currentPage - 1) * perPage;
+    
+    // Get data
+    this.limitVal = perPage;
+    this.offsetVal = offset;
+    const data = await this.get();
+    
+    return {
+      data,
+      total,
+      perPage,
+      currentPage,
+      lastPage,
+      from: offset + 1,
+      to: Math.min(offset + perPage, total),
+    };
+  }
 }
 
 // Base Model class
@@ -390,7 +437,102 @@ export abstract class Model {
     if (data) Object.assign(this, data);
   }
 
-  // Static helper to get entries as Instances
+
+
+  /**
+   * Define hasOne relationship
+   */
+  protected hasOne<T extends Model>(relatedClass: { new (): T } & typeof Model, foreignKey?: string, localKey: string = 'id'): QueryBuilder<T> {
+    const fk = foreignKey || `${this.constructor.name.toLowerCase()}_id`;
+    const qb = relatedClass.query<T>().where(fk, '=', this[localKey]).limit(1);
+    
+    (qb as any)._relationInfo = {
+      type: 'hasOne',
+      relatedClass: relatedClass,
+      foreignKey: fk,
+      localKey
+    };
+    
+    return qb;
+  }
+
+  /**
+   * Define hasMany relationship
+   */
+  protected hasMany<T extends Model>(relatedClass: { new (): T } & typeof Model, foreignKey?: string, localKey: string = 'id'): QueryBuilder<T> {
+    const fk = foreignKey || `${this.constructor.name.toLowerCase()}_id`;
+    const qb = relatedClass.query<T>().where(fk, '=', this[localKey]);
+    
+    (qb as any)._relationInfo = {
+      type: 'hasMany',
+      relatedClass: relatedClass,
+      foreignKey: fk,
+      localKey
+    };
+    
+    return qb;
+  }
+
+  /**
+   * Define belongsTo relationship
+   */
+  protected belongsTo<T extends Model>(relatedClass: { new (): T } & typeof Model, foreignKey?: string, ownerKey: string = 'id'): QueryBuilder<T> {
+    const fk = foreignKey || `${relatedClass.name.toLowerCase()}_id`;
+    let qb: QueryBuilder<T>;
+    
+    if (!this[fk]) {
+       // Return empty query if FK is missing
+       qb = relatedClass.query<T>().where(ownerKey, '=', null).limit(1);
+    } else {
+       qb = relatedClass.query<T>().where(ownerKey, '=', this[fk]).limit(1);
+    }
+
+    (qb as any)._relationInfo = {
+      type: 'belongsTo',
+      relatedClass: relatedClass,
+      foreignKey: fk,
+      ownerKey
+    };
+    
+    return qb;
+  }
+  
+  /**
+   * Define belongsToMany relationship (ManyToMany)
+   * Assumes pivot table name is alphabetical order of model names joined by underscore
+   */
+  protected belongsToMany<T extends Model>(
+    relatedClass: { new (): T } & typeof Model, 
+    pivotTable?: string, 
+    foreignPivotKey?: string, 
+    relatedPivotKey?: string
+  ): QueryBuilder<T> {
+    const relatedName = relatedClass.name.toLowerCase();
+    const thisName = this.constructor.name.toLowerCase();
+    
+    // Default pivot table name: alphabetical order (e.g., role_user)
+    const table = pivotTable || [relatedName, thisName].sort().join('_');
+    
+    // Keys
+    const fk = foreignPivotKey || `${thisName}_id`;
+    const rk = relatedPivotKey || `${relatedName}_id`;
+    
+    const builder = relatedClass.query<T>();
+    
+    const sql = `id IN (SELECT ${rk} FROM ${table} WHERE ${fk} = ?)`;
+    // We pass the binding
+    const qb = builder.whereRaw(sql, [this['id']]);
+    
+    (qb as any)._relationInfo = {
+      type: 'belongsToMany',
+      relatedClass: relatedClass,
+      pivotTable: table,
+      foreignPivotKey: fk,
+      relatedPivotKey: rk
+    };
+    
+    return qb;
+  }
   static table<T extends Model>(this: new () => T): QueryBuilder<T> {
     return new QueryBuilderImpl<T>((this as any).tableName, this);
   }
@@ -455,88 +597,7 @@ export abstract class Model {
     return new QueryBuilderImpl<any>(this.tableName).where(this.primaryKey, '=', id).delete();
   }
   
-  // ============================================
-  // Relationships
-  // ============================================
 
-  // HasOne: User has one Profile
-  hasOne<R extends Model>(related: { new (): R } & typeof Model, foreignKey?: string, localKey: string = 'id'): Promise<R | null> {
-    const fk = foreignKey || `${this.constructor.name.toLowerCase()}_id`;
-    const pk = (this as any)[localKey];
-    
-    // We need to return a Promise that behaves like the query result BUT also carries metadata
-    // This is tricky because we are returning Promise<R|null> here for direct usage, 
-    // but eager loading needs the QueryBuilder.
-    // However, in our eagerLoad impl, we call this method and check `_relationInfo` on the returned object.
-    // If we return a Promise, we must attach _relationInfo to the Promise!
-    
-    const qb = related.query<R>();
-    const info: RelationInfo = { type: 'hasOne', relatedClass: related, foreignKey: fk, localKey };
-    (qb as any)._relationInfo = info;
-    
-    const promise = qb.where(fk, '=', pk).first();
-    (promise as any)._relationInfo = info; // Attach to promise effectively
-    return promise;
-  }
-
-  // HasMany: User has many Posts
-  hasMany<R extends Model>(related: { new (): R } & typeof Model, foreignKey?: string, localKey: string = 'id'): QueryBuilder<R> {
-    const fk = foreignKey || `${this.constructor.name.toLowerCase()}_id`;
-    const pk = (this as any)[localKey];
-    
-    const qb = related.query<R>().where(fk, '=', pk);
-    const info: RelationInfo = { type: 'hasMany', relatedClass: related, foreignKey: fk, localKey };
-    (qb as any)._relationInfo = info;
-    return qb;
-  }
-
-  // BelongsTo: Post belongs to User
-  belongsTo<R extends Model>(related: { new (): R } & typeof Model, foreignKey?: string, ownerKey: string = 'id'): Promise<R | null> {
-    const fk = foreignKey || `${related.name.toLowerCase()}_id`;
-    const val = (this as any)[fk];
-    
-    const qb = related.query<R>();
-    const info: RelationInfo = { type: 'belongsTo', relatedClass: related, foreignKey: fk, ownerKey };
-    (qb as any)._relationInfo = info;
-
-    const promise = qb.where(ownerKey, '=', val).first();
-    (promise as any)._relationInfo = info;
-    return promise;
-  }
-  
-  // BelongsToMany: User belongsForMany Roles (through user_roles)
-  belongsToMany<R extends Model>(
-    related: { new (): R } & typeof Model, 
-    pivotTable: string,
-    foreignPivotKey?: string, 
-    relatedPivotKey?: string
-  ): QueryBuilder<R> {
-     // User belongsToMany Role
-     // pivot: user_roles
-     // foreignPivotKey: user_id (this model)
-     // relatedPivotKey: role_id (related model)
-     
-     const foreignKey = foreignPivotKey || `${this.constructor.name.toLowerCase()}_id`;
-     const relatedKey = relatedPivotKey || `${related.name.toLowerCase()}_id`;
-     const pk = (this as any).id;
-     
-     const qb = related.query<R>();
-     const info: RelationInfo = { 
-       type: 'belongsToMany', 
-       relatedClass: related,
-       foreignKey: '', // Not used for belongsToMany but required by interface
-       pivotTable, 
-       foreignPivotKey: foreignKey, 
-       relatedPivotKey: relatedKey 
-     };
-     (qb as any)._relationInfo = info;
-
-     // SELECT roles.* FROM roles INNER JOIN pivot ON pivot.role_id = roles.id WHERE pivot.user_id = ?
-     return qb
-       .select(`${related.tableName}.*`)
-       .join(pivotTable, `${pivotTable}.${relatedKey}`, '=', `${related.tableName}.id`)
-       .where(`${pivotTable}.${foreignKey}`, '=', pk);
-  }
 }
 
 export { query, execute };

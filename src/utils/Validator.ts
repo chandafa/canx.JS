@@ -67,7 +67,7 @@ export function validate(data: Record<string, unknown>, schema: ValidationSchema
       ruleList = rules.rules;
       customMessages = rules.messages || {};
     } else {
-      ruleList = [rules];
+      ruleList = rules.split('|') as ValidationRule[];
     }
 
     for (const rule of ruleList) {
@@ -189,7 +189,7 @@ export async function validateAsync(data: Record<string, unknown>, schema: Valid
       ruleList = rules.rules;
       customMessages = rules.messages || {};
     } else {
-      ruleList = [rules];
+      ruleList = rules.split('|') as ValidationRule[];
     }
     
     for (const rule of ruleList) {

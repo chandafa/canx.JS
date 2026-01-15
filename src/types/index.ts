@@ -224,6 +224,7 @@ export interface QueryBuilder<T> {
   whereIn: (column: keyof T, values: unknown[]) => QueryBuilder<T>;
   whereNull: (column: keyof T) => QueryBuilder<T>;
   whereNotNull: (column: keyof T) => QueryBuilder<T>;
+  whereRaw: (sql: string, bindings?: unknown[]) => QueryBuilder<T>;
   orWhere: (column: keyof T, operator: string, value: unknown) => QueryBuilder<T>;
   orderBy: (column: keyof T, direction?: 'asc' | 'desc') => QueryBuilder<T>;
   limit: (count: number) => QueryBuilder<T>;
@@ -242,6 +243,17 @@ export interface QueryBuilder<T> {
   delete: () => Promise<number>;
   raw: (sql: string, bindings?: unknown[]) => Promise<unknown>;
   with: (...relations: string[]) => QueryBuilder<T>;
+}
+
+export interface RelationInfo {
+  type: 'hasOne' | 'hasMany' | 'belongsTo' | 'belongsToMany';
+  relatedClass: any;
+  foreignKey: string;
+  localKey?: string;
+  ownerKey?: string;
+  pivotTable?: string;
+  foreignPivotKey?: string;
+  relatedPivotKey?: string;
 }
 
 // ============================================
@@ -369,7 +381,7 @@ export type ValidationRule =
   | `different:${string}`;
 
 export interface ValidationSchema {
-  [field: string]: ValidationRule | ValidationRule[] | {
+  [field: string]: ValidationRule | ValidationRule[] | string | {
     rules: ValidationRule[];
     messages?: Record<string, string>;
   };

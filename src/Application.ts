@@ -106,36 +106,45 @@ export class Canx implements CanxApplication {
     const req = createCanxRequest(rawReq);
     const res = createCanxResponse();
 
-    // Match route
-    const match = this.router.match(req.method, req.path);
+    try {
+      // Match route
+      const match = this.router.match(req.method, req.path);
 
-    if (!match) {
-      return res.status(404).json({ error: 'Not Found', path: req.path });
-    }
+      if (!match) {
+        const { NotFoundException } = await import('./core/exceptions/NotFoundException');
+        throw new NotFoundException(`Route not found: ${req.method} ${req.path}`);
+      }
 
-    // Update params
-    Object.assign(req.params, match.params);
+      // Update params
+      Object.assign(req.params, match.params);
 
-    // Execute middleware pipeline and handler
-    const result = await this.pipeline.execute(req, res, match.middlewares, () => match.handler(req, res));
-    
-    // If handler returns string (e.g., from View()), wrap in HTML Response
-    if (typeof result === 'string') {
-      return res.html(result);
+      // Execute middleware pipeline and handler
+      const result = await this.pipeline.execute(req, res, match.middlewares, () => match.handler(req, res));
+      
+      // If handler returns string (e.g., from View()), wrap in HTML Response
+      if (typeof result === 'string') {
+        return res.html(result);
+      }
+      
+      // If result is already a Response, return it
+      if (result instanceof Response) {
+        return result;
+      }
+      
+      // If result is an object/array, return as JSON
+      if (result !== null && result !== undefined) {
+        return res.json(result);
+      }
+      
+      // Fallback: empty 204 response
+      return res.empty();
+
+    } catch (error: any) {
+      // Delegate to ErrorHandler (via Server.ts or manual call here if needed)
+      // Since Server.ts calls this method, allowing it to bubble up is usually fine.
+      // However, if we want to ensure any internal pipelines are caught, we rethrow.
+      throw error;
     }
-    
-    // If result is already a Response, return it
-    if (result instanceof Response) {
-      return result;
-    }
-    
-    // If result is an object/array, return as JSON
-    if (result !== null && result !== undefined) {
-      return res.json(result);
-    }
-    
-    // Fallback: empty 204 response
-    return res.empty();
   }
 
   /**
@@ -160,10 +169,50 @@ export class Canx implements CanxApplication {
   put(path: string, ...handlers: any[]): this { this.router.put(path, ...handlers); return this; }
   patch(path: string, ...handlers: any[]): this { this.router.patch(path, ...handlers); return this; }
   delete(path: string, ...handlers: any[]): this { this.router.delete(path, ...handlers); return this; }
+  all(path: string, ...handlers: any[]): this { this.router.all(path, ...handlers); return this; }
+
+  /**
+   * Register a resource controller with RESTful routes
+   */
+  resource(path: string, controller: any, ...middlewares: MiddlewareHandler[]): this {
+    this.router.resource(path, controller, ...middlewares);
+    return this;
+  }
+
+  /**
+   * Group routes with a common prefix
+   */
+  group(prefix: string, callback: (router: RouterInstance) => void): this {
+    this.router.group(prefix, callback);
+    return this;
+  }
+
+  /**
+   * Register routes under a versioned API path
+   * @param version - Version identifier (e.g., 'v1', 'v2')
+   * @param callback - Route registration callback
+   */
+  version(version: string, callback: (router: RouterInstance) => void): this {
+    const prefix = version.startsWith('/') ? version : '/api/' + version;
+    this.router.group(prefix, callback);
+    return this;
+  }
 }
 
+/**
+ * Create a new CanxJS application instance
+ */
 export function createApp(config?: ServerConfig): Canx {
   return new Canx(config);
 }
 
+/**
+ * Define configuration with type checking
+ * Helper for creating typed configuration objects
+ */
+export function defineConfig<T extends Record<string, any>>(config: T): T {
+  return config;
+}
+
 export default Canx;
+

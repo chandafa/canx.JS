@@ -36,20 +36,30 @@ function parseArgs(args: string[]) {
 }
 
 // Project files generators
+
 function getPackageJson(options: ProjectOptions) {
+  const deps: Record<string, string> = {
     'canxjs': 'latest',
-    'canx-ui': 'latest',
   };
+
+  if (options.type === 'mvc') {
+     deps['canx-ui'] = 'latest';
+  }
   
   const devDeps: Record<string, string> = {
     '@types/bun': 'latest',
-    'tailwindcss': '^3.4.0',
-    'postcss': '^8.4.0',
-    'autoprefixer': '^10.4.0',
-    'clsx': '^2.0.0',
-    'tailwind-merge': '^2.0.0',
     'concurrently': '^8.0.0',
   };
+
+  if (options.type === 'mvc') {
+    Object.assign(devDeps, {
+      'tailwindcss': '^3.4.0',
+      'postcss': '^8.4.0',
+      'autoprefixer': '^10.4.0',
+      'clsx': '^2.0.0',
+      'tailwind-merge': '^2.0.0',
+    });
+  }
 
   if (options.language === 'typescript') {
     devDeps['typescript'] = '^5.3.0';
@@ -60,23 +70,32 @@ function getPackageJson(options: ProjectOptions) {
     devDeps['prisma'] = 'latest';
   }
 
+  const scripts: Record<string, string> = {
+    "dev:server": `bun --watch src/app.${options.language === 'typescript' ? 'ts' : 'js'}`,
+    "build:server": `bun build src/app.${options.language === 'typescript' ? 'ts' : 'js'} --outdir dist --target bun`,
+    "test": 'bun test',
+  };
+
+  if (options.type === 'mvc') {
+    scripts["dev:css"] = "bunx tailwindcss -i ./src/index.css -o ./public/css/app.css --watch";
+    scripts["dev"] = "concurrently \"bun run dev:server\" \"bun run dev:css\"";
+    scripts["build:css"] = "bunx tailwindcss -i ./src/index.css -o ./public/css/app.css --minify";
+    scripts["build"] = "bun run build:server && bun run build:css";
+  } else {
+    scripts["dev"] = "bun run dev:server";
+    scripts["build"] = "bun run build:server";
+  }
+
+  if (options.prisma) {
+    scripts["db:migrate"] = "prisma migrate dev";
+    scripts["db:studio"] = "prisma studio";
+  }
+
   return JSON.stringify({
     name: options.name,
     version: '1.0.0',
     type: 'module',
-    scripts: {
-      "dev:server": `bun --watch src/app.${options.language === 'typescript' ? 'ts' : 'js'}`,
-      "dev:css": "bunx tailwindcss -i ./src/index.css -o ./public/css/app.css --watch",
-      "dev": "concurrently \"bun run dev:server\" \"bun run dev:css\"",
-      "build:server": `bun build src/app.${options.language === 'typescript' ? 'ts' : 'js'} --outdir dist --target bun`,
-      "build:css": "bunx tailwindcss -i ./src/index.css -o ./public/css/app.css --minify",
-      "build": "bun run build:server && bun run build:css",
-      test: 'bun test',
-      ...(options.prisma ? {
-        "db:migrate": "prisma migrate dev",
-        "db:studio": "prisma studio"
-      } : {})
-    },
+    scripts,
     dependencies: deps,
     devDependencies: devDeps,
   }, null, 2);
@@ -115,36 +134,39 @@ function getAppContent(options: ProjectOptions) {
   if (options.type === 'microservice') {
     return `import { createApp } from 'canxjs';
 
-const app = createApp({ port: 3000 });
+const app = createApp({ 
+  port: Number(process.env.PORT) || 3000,
+  name: '${options.name}'
+});
 
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
-app.get('/api/data', (req, res) => res.json({ message: 'Hello from microservice!' }));
+app.get('/health', (req, res) => res.json({ status: 'ok', service: '${options.name}' }));
+app.get('/', (req, res) => res.json({ message: 'Microservice is running' }));
 
-app.listen();
+app.listen(() => console.log('🚀 Microservice running on port ' + (process.env.PORT || 3000)));
 `;
   }
 
-  // MVC or API
+  // MVC or API settings
   const imports = [
-    `import { createApp, logger, cors } from 'canxjs';`,
+    `import { createApp, logger, cors${options.type === 'mvc' ? ', serveStatic' : ''} } from 'canxjs';`,
     `import { initDatabase } from 'canxjs';`,
-    `import { webRoutes } from './routes/web';`,
+    options.type === 'mvc' ? `import { webRoutes } from './routes/web';` : '',
     `import { apiRoutes } from './routes/api';`,
     `import dbConfig from './config/database';`,
-  ];
+  ].filter(Boolean);
 
   return `${imports.join('\n')}
 
 const app = createApp({
-  port: 3000,
-  development: true,
+  port: Number(process.env.PORT) || 3000,
+  development: process.env.NODE_ENV !== 'production',
   cors: true,
-  // Add other config here
 });
 
 // Middlewares
 app.use(logger());
 app.use(cors());
+${options.type === 'mvc' ? 'app.use(serveStatic("public"));' : ''}
 
 // Routes
 ${options.type === 'mvc' ? 'app.routes(webRoutes);' : ''}
@@ -152,11 +174,16 @@ app.routes(apiRoutes);
 
 // Initialize database and start server
 async function bootstrap() {
-  await initDatabase(dbConfig);
-  await app.listen(() => console.log('🚀 Server ready!'));
+  try {
+    await initDatabase(dbConfig);
+    await app.listen(() => console.log('🚀 Server ready at http://localhost:' + (process.env.PORT || 3000)));
+  } catch (err) {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  }
 }
 
-bootstrap().catch(console.error);
+bootstrap();
 `;
 }
 
@@ -201,44 +228,32 @@ export function apiRoutes(router${typeAnnot}) {
 
 function getHomeController(options: ProjectOptions) {
   const isTs = options.language === 'typescript';
+  const ext = isTs ? 'tsx' : 'jsx';
   const typeImports = isTs ? "import type { CanxRequest, CanxResponse } from 'canxjs';" : "";
   const reqType = isTs ? ": CanxRequest" : "";
   const resType = isTs ? ": CanxResponse" : "";
 
-  return `import { BaseController, Controller, Get } from 'canxjs';
-import { renderPage, jsx } from 'canxjs';
+  return `import { BaseController, Controller, Get, renderPage } from 'canxjs';
+import { Welcome } from '../views/Welcome';
 ${typeImports}
 
 @Controller('/')
 export class HomeController extends BaseController {
   @Get('/')
   index(req${reqType}, res${resType}) {
-    const html = renderPage(
-      jsx('div', { className: 'container' },
-        jsx('h1', null, 'Welcome to CanxJS!'),
-        jsx('p', null, 'Ultra-fast async-first MVC framework for Bun'),
-        jsx('a', { href: '/about' }, 'About')
-      ),
-      { title: 'Home - CanxJS' }
-    );
+    const html = renderPage(Welcome({ version: '1.0.0' }), { 
+      title: 'Welcome - CanxJS',
+      cssPath: '/css/app.css'
+    });
     return res.html(html);
   }
 
   @Get('/about')
   about(req${reqType}, res${resType}) {
-    const html = renderPage(
-      jsx('div', { className: 'container' },
-        jsx('h1', null, 'About CanxJS'),
-        jsx('ul', null,
-          jsx('li', null, '🚀 Ultra-fast Bun runtime'),
-          jsx('li', null, '⚡ Async-first design'),
-          jsx('li', null, '🔥 HotWire real-time streaming'),
-          jsx('li', null, '🧠 Auto-caching layer')
-        ),
-        jsx('a', { href: '/' }, 'Back to Home')
-      ),
-      { title: 'About - CanxJS' }
-    );
+    const html = renderPage(Welcome({ version: '1.0.0' }), { 
+      title: 'About - CanxJS',
+      cssPath: '/css/app.css'
+    });
     return res.html(html);
   }
 }
@@ -436,6 +451,299 @@ model User {
 `;
 }
 
+function getAppCss() {
+  return `@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CanxJS Custom Styles */
+:root {
+  --canx-primary: #10b981;
+  --canx-secondary: #06b6d4;
+  --canx-dark: #0f172a;
+}
+
+/* Glass Effect */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Gradient Text */
+.text-gradient {
+  background: linear-gradient(135deg, #10b981 0%, #06b6d4 50%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Aurora Background Animation */
+.aurora-blob-1 { animation: aurora1 8s ease-in-out infinite; }
+.aurora-blob-2 { animation: aurora2 10s ease-in-out infinite; }
+.aurora-blob-3 { animation: aurora3 12s ease-in-out infinite; }
+
+@keyframes aurora1 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.2; }
+  50% { transform: translate(50px, 50px) scale(1.1); opacity: 0.3; }
+}
+
+@keyframes aurora2 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.2; }
+  50% { transform: translate(-30px, 30px) scale(1.2); opacity: 0.25; }
+}
+
+@keyframes aurora3 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.1; }
+  50% { transform: translate(40px, -40px) scale(1.15); opacity: 0.15; }
+}
+
+/* Grid Pattern */
+.grid-pattern {
+  background-image: 
+    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
+}
+
+/* Animations */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-down {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes border-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.1); }
+  50% { box-shadow: 0 0 30px rgba(16, 185, 129, 0.2); }
+}
+
+.animate-fade-in-up { animation: fade-in-up 0.6s ease-out; }
+.animate-fade-in-down { animation: fade-in-down 0.6s ease-out; }
+.animate-border-glow { animation: border-glow 3s ease-in-out infinite; }
+
+/* Shimmer Button */
+.shimmer-btn {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
+}
+
+.shimmer-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { left: -100%; }
+  100% { left: 100%; }
+}
+
+/* Spotlight Card */
+.spotlight-card {
+  position: relative;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 1rem;
+  transition: all 0.3s ease;
+}
+
+.spotlight-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(16, 185, 129, 0.3);
+  transform: translateY(-4px);
+}
+`;
+}
+
+function getTailwindConfig() {
+  return `/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    './src/**/*.{ts,tsx,js,jsx}',
+    './public/**/*.html',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        'canx-primary': '#10b981',
+        'canx-secondary': '#06b6d4',
+      },
+    },
+  },
+  plugins: [],
+}
+`;
+}
+
+function getPostcssConfig() {
+  return `module.exports = {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+`;
+}
+
+function getAdminLayout() {
+  return `import { jsx } from 'canxjs';
+
+interface LayoutProps {
+  title?: string;
+  children?: any;
+}
+
+export function AdminLayout({ title = 'Admin', children }: LayoutProps) {
+  return (
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{title} - CanxJS Admin</title>
+        <link rel="stylesheet" href="/css/app.css" />
+      </head>
+      <body class="bg-slate-950 text-white min-h-screen">
+        <div class="flex">
+          {/* Sidebar */}
+          <aside class="w-64 min-h-screen bg-slate-900 border-r border-slate-800 p-4">
+            <div class="text-xl font-bold text-gradient mb-8">CanxJS Admin</div>
+            <nav class="space-y-2">
+              <a href="/admin" class="block px-4 py-2 rounded-lg hover:bg-slate-800 transition">Dashboard</a>
+              <a href="/admin/users" class="block px-4 py-2 rounded-lg hover:bg-slate-800 transition">Users</a>
+              <a href="/admin/settings" class="block px-4 py-2 rounded-lg hover:bg-slate-800 transition">Settings</a>
+            </nav>
+          </aside>
+          {/* Main Content */}
+          <main class="flex-1 p-8">
+            {children}
+          </main>
+        </div>
+      </body>
+    </html>
+  );
+}
+`;
+}
+
+function getWelcomeView(options: ProjectOptions) {
+  return `import { jsx } from 'canxjs';
+
+interface WelcomeProps {
+  version?: string;
+}
+
+export function Welcome({ version = '1.0.0' }: WelcomeProps) {
+  return (
+    <>
+      <head>
+        <title>Welcome - CanxJS</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="stylesheet" href="/css/app.css" />
+      </head>
+      <div class="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white min-h-screen relative overflow-hidden">
+        {/* Aurora Background */}
+        <div class="absolute inset-0 overflow-hidden pointer-events-none">
+          <div class="absolute top-0 -left-40 w-[500px] h-[500px] bg-emerald-500/20 rounded-full blur-[100px] aurora-blob-1"></div>
+          <div class="absolute top-20 -right-40 w-[400px] h-[400px] bg-cyan-500/20 rounded-full blur-[100px] aurora-blob-2"></div>
+          <div class="absolute -bottom-40 left-1/3 w-[600px] h-[600px] bg-purple-500/10 rounded-full blur-[120px] aurora-blob-3"></div>
+        </div>
+        
+        {/* Grid Pattern */}
+        <div class="absolute inset-0 grid-pattern pointer-events-none opacity-50"></div>
+
+        <div class="relative min-h-screen flex flex-col items-center justify-center px-4">
+          <div class="w-full max-w-4xl text-center">
+            {/* Header */}
+            <header class="mb-12 animate-fade-in-down">
+              <div class="flex items-center justify-center gap-3 mb-8">
+                <div class="w-12 h-12 bg-gradient-to-br from-emerald-500 to-cyan-500 rounded-xl flex items-center justify-center text-2xl font-bold">C</div>
+                <span class="text-2xl font-bold text-gradient">CanxJS</span>
+              </div>
+            </header>
+
+            {/* Hero Section */}
+            <main class="animate-fade-in-up">
+              <div class="inline-flex items-center gap-2 px-4 py-2 glass rounded-full text-emerald-400 text-sm font-medium mb-8 animate-border-glow">
+                <span class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
+                Version {version}
+              </div>
+              
+              <h1 class="text-5xl md:text-7xl font-extrabold mb-6 leading-tight">
+                <span class="bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                  Welcome to
+                </span>
+                <br />
+                <span class="text-gradient">CanxJS Framework</span>
+              </h1>
+              
+              <p class="text-xl text-slate-400 max-w-2xl mx-auto mb-10">
+                Ultra-fast async-first MVC backend framework for Bun runtime.
+                Build scalable applications with modern architecture.
+              </p>
+
+              {/* Quick Start */}
+              <div class="glass rounded-xl px-6 py-4 inline-flex items-center gap-4 mb-12 animate-border-glow">
+                <code class="text-emerald-400 font-mono text-lg">bunx create-canx my-app</code>
+              </div>
+
+              {/* Features */}
+              <div class="grid gap-4 md:grid-cols-3 mt-12">
+                <div class="spotlight-card p-6 text-left">
+                  <div class="w-12 h-12 bg-gradient-to-br from-emerald-500 to-cyan-500 rounded-xl flex items-center justify-center mb-4">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                  </div>
+                  <h3 class="text-lg font-bold text-white mb-2">Blazing Fast</h3>
+                  <p class="text-slate-400 text-sm">Ultra-fast routing with native Bun performance.</p>
+                </div>
+                <div class="spotlight-card p-6 text-left">
+                  <div class="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center mb-4">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+                    </svg>
+                  </div>
+                  <h3 class="text-lg font-bold text-white mb-2">Native JSX</h3>
+                  <p class="text-slate-400 text-sm">Server-side JSX without React overhead.</p>
+                </div>
+                <div class="spotlight-card p-6 text-left">
+                  <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center mb-4">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                    </svg>
+                  </div>
+                  <h3 class="text-lg font-bold text-white mb-2">Built-in Auth</h3>
+                  <p class="text-slate-400 text-sm">Secure authentication out of the box.</p>
+                </div>
+              </div>
+            </main>
+
+            {/* Footer */}
+            <footer class="mt-16 py-8 border-t border-slate-800/50">
+              <p class="text-slate-500 text-sm">
+                CanxJS v{version} • Built with ❤️ for developers
+              </p>
+            </footer>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+`;
+}
+
 
 // MAIN FUNCTION
 async function main() {
@@ -581,10 +889,17 @@ function createProject(options: ProjectOptions) {
   console.log(pc.dim(`   Language: ${options.language}`));
   console.log(pc.dim(`   Database: ${options.database}`));
   
-  // Create directories
-  const dirs = options.type === 'microservice' 
-    ? ['src']
-    : ['src', 'src/controllers', 'src/models', 'src/views', 'src/resources/views/layouts', 'src/routes', 'src/middlewares', 'src/config', 'public', 'storage'];
+  // Create directories based on project type
+  let dirs: string[];
+  if (options.type === 'microservice') {
+    dirs = ['src'];
+  } else if (options.type === 'api') {
+    // API-only: no views, no public CSS
+    dirs = ['src', 'src/controllers', 'src/models', 'src/routes', 'src/middlewares', 'src/config', 'public'];
+  } else {
+    // MVC: full project with views
+    dirs = ['src', 'src/controllers', 'src/models', 'src/views', 'src/resources/views/layouts', 'src/routes', 'src/middlewares', 'src/config', 'public', 'public/css', 'storage'];
+  }
 
   if (options.prisma) {
     dirs.push('prisma');
@@ -615,20 +930,29 @@ function createProject(options: ProjectOptions) {
   }
 
   if (options.type !== 'microservice') {
+    const viewExt = options.language === 'typescript' ? 'tsx' : 'jsx';
+    
+    // Common files for both MVC and API
     files.push(
-      [`src/routes/web.${ext}`, getWebRoutes(options)],
       [`src/routes/api.${ext}`, getApiRoutes(options)],
-      [`src/controllers/HomeController.${ext}`, getHomeController(options)],
       [`src/controllers/UserController.${ext}`, getUserController(options)],
       [`src/models/User.${ext}`, getUserModel(options)],
       [`src/config/database.${ext}`, getDatabaseConfig(options)],
       [`src/config/app.${ext}`, getAppConfig()],
-      [`src/config/database.${ext}`, getDatabaseConfig(options)],
-      [`src/config/app.${ext}`, getAppConfig()],
-      [`src/index.css`, getAppCss()],
-      [`tailwind.config.js`, getTailwindConfig()],
-      [`src/resources/views/layouts/admin.tsx`, getAdminLayout()],
     );
+    
+    // MVC-specific files (includes views, layouts, CSS, web routes)
+    if (options.type === 'mvc') {
+      files.push(
+        [`src/routes/web.${ext}`, getWebRoutes(options)],
+        [`src/controllers/HomeController.${ext}`, getHomeController(options)],
+        [`src/index.css`, getAppCss()],
+        [`tailwind.config.js`, getTailwindConfig()],
+        [`postcss.config.js`, getPostcssConfig()],
+        [`src/views/Welcome.${viewExt}`, getWelcomeView(options)],
+        [`src/resources/views/layouts/admin.${viewExt}`, getAdminLayout()],
+      );
+    }
   }
 
   files.forEach(([file, content]) => {

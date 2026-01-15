@@ -12,10 +12,11 @@ export { Router, createRouter } from './core/Router';
 // ============================================
 // Middleware Exports
 // ============================================
-export { MiddlewarePipeline, cors, logger, bodyParser, rateLimit, compress, createMiddlewarePipeline } from './core/Middleware';
+export { MiddlewarePipeline, cors, logger, bodyParser, rateLimit, compress, serveStatic, createMiddlewarePipeline } from './core/Middleware';
 export { security } from './middlewares/SecurityMiddleware';
 export { rateLimit as rateLimitMiddleware } from './middlewares/RateLimitMiddleware';
 export { validateSchema } from './middlewares/ValidationMiddleware';
+export { csrf, csrfField, csrfMeta } from './middlewares/CsrfMiddleware';
 
 // ============================================
 // Schema / Validation Exports
@@ -28,8 +29,8 @@ export { TestClient } from './testing/TestClient';
 // ============================================
 // MVC Exports
 // ============================================
-export { BaseController, Controller, Get, Post, Put, Patch, Delete, Middleware, getControllerMeta } from './mvc/Controller';
-export { Model, initDatabase, closeDatabase, query, execute } from './mvc/Model';
+export { BaseController, Controller, Get, Post, Put, Patch, Delete, Middleware, Validate, getControllerMeta } from './mvc/Controller';
+export { Model, QueryBuilderImpl, initDatabase, closeDatabase, query, execute } from './mvc/Model';
 export { jsx, jsxs, Fragment, html, render, renderPage, createLayout, View } from './mvc/View';
 
 // ============================================
@@ -111,8 +112,12 @@ export type { ServiceProvider } from './container/Container';
 // Utils Exports
 // ============================================
 export { validate, validateAsync, is } from './utils/Validator';
+// Utils - Request/Response
 export { ResponseBuilder, response } from './utils/Response';
 export { RequestParser, parseRequest } from './utils/Request';
+
+// Environment Helper
+export { env, isProduction, isDevelopment, isTest, requireEnv } from './utils/Env';
 
 // Error Handling
 export { ErrorHandler } from './core/ErrorHandler';
@@ -183,7 +188,7 @@ export type { TestResponse, TestRequest } from './testing/TestCase';
 // ============================================
 // Application Exports
 // ============================================
-export { Canx, createApp } from './Application';
+export { Canx, createApp, defineConfig } from './Application';
 
 // ============================================
 // Types

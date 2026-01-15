@@ -75,6 +75,10 @@ export class Scheduler {
     }
   }
 
+  public run() {
+    this.tick();
+  }
+
   private tick() {
     const now = new Date();
     

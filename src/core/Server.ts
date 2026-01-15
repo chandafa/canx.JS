@@ -501,12 +501,13 @@ export class Server {
         callback();
       }
 
+      const displayHost = this.config.hostname === '0.0.0.0' ? 'localhost' : this.config.hostname;
       console.log(`
 ╔══════════════════════════════════════════════════════════╗
 ║                                                          ║
 ║   🚀 CanxJS Server running                               ║
 ║                                                          ║
-║   → Local:   http://${this.config.hostname}:${this.config.port}                     ║
+║   → Local:   http://${displayHost}:${this.config.port}                        ║
 ║   → Mode:    ${this.config.development ? 'Development' : 'Production'}                              ║
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝

@@ -89,15 +89,28 @@ export class Router implements RouterInstance {
   }
 
   private addRoute(method: HttpMethod, path: string, handler: RouteHandler, mws: MiddlewareHandler[] = []): void {
+    // Normalize path but preserve original for param name extraction
+    const originalPath = (this.prefix + path).startsWith('/') ? this.prefix + path : '/' + this.prefix + path;
     const normalized = this.normalizePath(this.prefix + path);
-    const tree = this.trees.get(method)!;
     const segments = normalized.split('/').filter(Boolean);
-    let node = tree;
+    const originalSegments = originalPath.split('/').filter(Boolean);
+    let node = this.trees.get(method)!;
 
-    for (const seg of segments) {
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const originalSeg = originalSegments[i] || seg;
       let key = seg, isParam = false, isWild = false, param: string | null = null;
-      if (seg.startsWith(':')) { isParam = true; param = seg.slice(1); key = ':'; }
-      else if (seg === '*' || seg.startsWith('*')) { isWild = true; param = seg.length > 1 ? seg.slice(1) : 'wildcard'; key = '*'; }
+      
+      // Extract param name from ORIGINAL segment to preserve casing
+      if (originalSeg.startsWith(':')) { 
+        isParam = true; 
+        param = originalSeg.slice(1); // Use original casing
+        key = ':'; 
+      } else if (originalSeg === '*' || originalSeg.startsWith('*')) { 
+        isWild = true; 
+        param = originalSeg.length > 1 ? originalSeg.slice(1) : 'wildcard'; 
+        key = '*'; 
+      }
 
       if (!node.children.has(key)) {
         const child = createNode(seg);
@@ -128,13 +141,31 @@ export class Router implements RouterInstance {
 
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
+      // Try exact match first
       let child = node.children.get(this.routerOptions.caseSensitive ? seg : seg.toLowerCase());
-      if (!child) { child = node.children.get(':'); if (child?.paramName) params[child.paramName] = seg; }
+      
+      // If no exact match, try parameter match
+      if (!child) { 
+        child = node.children.get(':'); 
+        if (child?.paramName) params[child.paramName] = seg; 
+      }
+      
+      // If still no match, try wildcard
       if (!child) {
         child = node.children.get('*');
-        if (child?.paramName) { params[child.paramName] = segments.slice(i).join('/'); if (child.handler) return { handler: child.handler, middlewares: child.middlewares, params }; }
+        if (child?.paramName) { 
+          params[child.paramName] = segments.slice(i).join('/'); 
+          if (child.handler) return { handler: child.handler, middlewares: child.middlewares, params }; 
+        }
       }
+      
       if (!child) return null;
+      
+      // If this is a param node, capture the parameter value
+      if (child.isParam && child.paramName && !params[child.paramName]) {
+        params[child.paramName] = seg;
+      }
+      
       node = child;
     }
     return node.handler ? { handler: node.handler, middlewares: node.middlewares, params } : null;
@@ -188,6 +219,52 @@ export class Router implements RouterInstance {
 
   middleware(...h: MiddlewareHandler[]): RouterInstance { this.currentMiddlewares.push(...h); return this; }
   use(...h: MiddlewareHandler[]): Router { this.globalMiddlewares.push(...h); return this; }
+
+  /**
+   * Register a resource controller with standard RESTful routes
+   * Creates: GET /, GET /:id, POST /, PUT /:id, DELETE /:id
+   */
+  resource(path: string, controller: any, ...middlewares: MiddlewareHandler[]): RouterInstance {
+    const instance = typeof controller === 'function' ? new controller() : controller;
+    const basePath = path.startsWith('/') ? path : '/' + path;
+    
+    // Helper to create handler
+    const createHandler = (method: string) => async (req: any, res: any) => {
+      if (typeof instance.setContext === 'function') {
+        instance.setContext(req, res);
+      }
+      if (typeof instance[method] === 'function') {
+        return instance[method](req, res);
+      }
+      return res.status(404).json({ error: `Method ${method} not found` });
+    };
+
+    // Standard RESTful routes
+    if (typeof instance.index === 'function') {
+      this.addRoute('GET', basePath, createHandler('index'), middlewares);
+    }
+    if (typeof instance.show === 'function') {
+      this.addRoute('GET', basePath + '/:id', createHandler('show'), middlewares);
+    }
+    if (typeof instance.store === 'function') {
+      this.addRoute('POST', basePath, createHandler('store'), middlewares);
+    }
+    if (typeof instance.update === 'function') {
+      this.addRoute('PUT', basePath + '/:id', createHandler('update'), middlewares);
+    }
+    if (typeof instance.destroy === 'function') {
+      this.addRoute('DELETE', basePath + '/:id', createHandler('destroy'), middlewares);
+    }
+    // Optional: create, edit for form-based apps
+    if (typeof instance.create === 'function') {
+      this.addRoute('GET', basePath + '/create', createHandler('create'), middlewares);
+    }
+    if (typeof instance.edit === 'function') {
+      this.addRoute('GET', basePath + '/:id/edit', createHandler('edit'), middlewares);
+    }
+
+    return this;
+  }
 
   getRoutes(): Route[] {
     const routes: Route[] = [];

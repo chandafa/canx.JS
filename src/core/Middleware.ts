@@ -103,6 +103,91 @@ export const compress = (): MiddlewareHandler => {
   };
 };
 
+/**
+ * Serve static files from a directory
+ * @param root - The root directory to serve files from (relative to cwd or absolute)
+ * @param options - Configuration options
+ */
+export const serveStatic = (root: string = 'public', options: { 
+  index?: string; 
+  maxAge?: number;
+  extensions?: string[];
+} = {}): MiddlewareHandler => {
+  const { index = 'index.html', maxAge = 86400 } = options;
+  
+  // Use path utilities inline to avoid import issues
+  const isAbsolute = (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
+  const join = (...parts: string[]) => parts.join('/').replace(/\/+/g, '/');
+  const extname = (p: string) => {
+    const lastDot = p.lastIndexOf('.');
+    const lastSlash = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+    return lastDot > lastSlash ? p.slice(lastDot) : '';
+  };
+  
+  const rootPath = isAbsolute(root) ? root : join(process.cwd(), root);
+  
+  const mimeTypes: Record<string, string> = {
+    '.html': 'text/html',
+    '.css': 'text/css',
+    '.js': 'application/javascript',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
+    '.eot': 'application/vnd.ms-fontobject',
+    '.pdf': 'application/pdf',
+    '.webp': 'image/webp',
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+    '.txt': 'text/plain',
+    '.xml': 'application/xml',
+  };
+
+  return async (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return next();
+    }
+
+    // Clean the path to prevent directory traversal
+    const cleanPath = req.path.replace(/\.\./g, '').replace(/\/+/g, '/');
+    let filePath = join(rootPath, cleanPath);
+    
+    try {
+      let file = Bun.file(filePath);
+      
+      // Check if it's a directory by trying index file
+      if (!(await file.exists())) {
+        file = Bun.file(join(filePath, index));
+        if (!(await file.exists())) {
+          return next();
+        }
+        filePath = join(filePath, index);
+      }
+      
+      const ext = extname(filePath).toLowerCase();
+      const contentType = mimeTypes[ext] || 'application/octet-stream';
+      
+      return new Response(file, {
+        headers: {
+          'Content-Type': contentType,
+          'Cache-Control': `public, max-age=${maxAge}`,
+          'Content-Length': String(file.size),
+        },
+      });
+    } catch (e) {
+      // File not found, continue to next middleware
+    }
+    
+    return next();
+  };
+};
+
 export function createMiddlewarePipeline(): MiddlewarePipeline {
   return new MiddlewarePipeline();
 }

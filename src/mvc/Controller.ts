@@ -54,6 +54,51 @@ export const Put = createMethodDecorator('PUT');
 export const Patch = createMethodDecorator('PATCH');
 export const Delete = createMethodDecorator('DELETE');
 
+/**
+ * Validate decorator - validates request body against a schema
+ * @param schema - Zod-like schema with parse/safeParse method
+ */
+export function Validate(schema: { parse?: (data: any) => any; safeParse?: (data: any) => { success: boolean; data?: any; error?: any } }): MethodDecorator {
+  return (target: any, propertyKey: string | symbol, descriptor: PropertyDescriptor) => {
+    const originalMethod = descriptor.value;
+    
+    descriptor.value = async function(this: BaseController, req: CanxRequest, res: CanxResponse) {
+      try {
+        const body = await req.body();
+        
+        // Support both parse and safeParse
+        if (schema.safeParse) {
+          const result = schema.safeParse(body);
+          if (!result.success) {
+            return res.status(422).json({
+              error: 'Validation failed',
+              details: result.error?.issues || result.error,
+            });
+          }
+          // Attach validated data to request
+          (req as any).validated = result.data;
+        } else if (schema.parse) {
+          try {
+            const validated = schema.parse(body);
+            (req as any).validated = validated;
+          } catch (e: any) {
+            return res.status(422).json({
+              error: 'Validation failed',
+              details: e.errors || e.message,
+            });
+          }
+        }
+        
+        return originalMethod.call(this, req, res);
+      } catch (e: any) {
+        return res.status(400).json({ error: 'Invalid request body' });
+      }
+    };
+    
+    return descriptor;
+  };
+}
+
 // Base Controller class
 export abstract class BaseController {
   protected request!: CanxRequest;
@@ -99,6 +144,40 @@ export abstract class BaseController {
   protected setCookie(name: string, value: string, options?: any): void {
     this.response.cookie(name, value, options);
   }
+
+  // Additional response helpers
+  protected created<T>(data: T): Response {
+    return this.response.status(201).json(data);
+  }
+
+  protected noContent(): Response {
+    return this.response.empty(204);
+  }
+
+  protected accepted<T>(data?: T): Response {
+    return data ? this.response.status(202).json(data) : this.response.empty(202);
+  }
+
+  protected notFound(message: string = 'Not Found'): Response {
+    return this.response.status(404).json({ error: message });
+  }
+
+  protected badRequest(message: string = 'Bad Request'): Response {
+    return this.response.status(400).json({ error: message });
+  }
+
+  protected unauthorized(message: string = 'Unauthorized'): Response {
+    return this.response.status(401).json({ error: message });
+  }
+
+  protected forbidden(message: string = 'Forbidden'): Response {
+    return this.response.status(403).json({ error: message });
+  }
+
+  protected async validated<T>(): Promise<T> {
+    return (this.request as any).validated as T;
+  }
 }
 
 export default BaseController;
+
