@@ -243,4 +243,84 @@ export const is = {
   object: (v: unknown) => validators.object(v),
 };
 
-export default { validate, validateAsync, is };
+// ============================================
+// Custom Rule Extension (Laravel-like)
+// ============================================
+
+type SyncValidatorFn = (value: unknown, param?: string) => boolean;
+type AsyncExtendFn = (value: unknown, param?: string) => Promise<boolean>;
+
+/**
+ * Extend the validator with a custom rule (sync)
+ * @example
+ * extend('phone', (value) => /^\+?[0-9]{10,15}$/.test(String(value)), 'Field {field} must be a valid phone number');
+ */
+export function extend(
+  name: string,
+  validator: SyncValidatorFn,
+  message?: string
+): void {
+  validators[name] = validator;
+  if (message) {
+    defaultMessages[name] = message;
+  }
+}
+
+/**
+ * Extend the validator with a custom async rule
+ * @example
+ * extendAsync('available', async (value) => {
+ *   const result = await checkAvailability(value);
+ *   return result.available;
+ * }, 'Field {field} is not available');
+ */
+export function extendAsync(
+  name: string,
+  validator: AsyncExtendFn,
+  message?: string
+): void {
+  asyncValidators[name] = validator;
+  if (message) {
+    defaultAsyncMessages[name] = message;
+  }
+}
+
+/**
+ * Extend the validator with a parameterized rule
+ * @example
+ * extendParam('digits', (value, param) => /^\d+$/.test(String(value)) && String(value).length === Number(param), 'Field {field} must be {param} digits');
+ */
+export function extendParam(
+  name: string,
+  validator: (value: unknown, param: string) => boolean,
+  message?: string
+): void {
+  paramValidators[name] = validator;
+  if (message) {
+    defaultMessages[name] = message;
+  }
+}
+
+/**
+ * Get all registered validators
+ */
+export function getValidators(): {
+  sync: Record<string, SyncValidatorFn>;
+  async: Record<string, AsyncExtendFn>;
+  param: Record<string, (value: unknown, param: string) => boolean>;
+} {
+  return {
+    sync: { ...validators },
+    async: { ...asyncValidators },
+    param: { ...paramValidators },
+  };
+}
+
+/**
+ * Set a custom message for an existing rule
+ */
+export function setMessage(rule: string, message: string): void {
+  defaultMessages[rule] = message;
+}
+
+export default { validate, validateAsync, is, extend, extendAsync, extendParam, getValidators, setMessage };

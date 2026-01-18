@@ -52,4 +52,33 @@ describe("Validator", () => {
       expect(result.data).toEqual({ name: "John" });
       expect((result.data as any).extra).toBeUndefined();
   });
+
+  test("extend() should add custom validation rule", () => {
+    const { extend } = require("../src/utils/Validator");
+    
+    // Add a custom phone validator
+    extend('phone', (value: unknown) => {
+      return typeof value === 'string' && /^\+?[0-9]{10,15}$/.test(value);
+    }, 'Field {field} must be a valid phone number');
+
+    // Test the custom rule
+    const schema = { phone: 'phone' };
+    expect(validate({ phone: '+1234567890' }, schema).valid).toBe(true);
+    expect(validate({ phone: 'invalid' }, schema).valid).toBe(false);
+  });
+
+  test("extendParam() should add parameterized custom rule", () => {
+    const { extendParam } = require("../src/utils/Validator");
+    
+    // Add a custom digits validator
+    extendParam('digits', (value: unknown, param: string) => {
+      return typeof value === 'string' && /^\d+$/.test(value) && value.length === Number(param);
+    }, 'Field {field} must be exactly {param} digits');
+
+    // Test the custom rule
+    const schema = { pin: 'digits:4' };
+    expect(validate({ pin: '1234' }, schema).valid).toBe(true);
+    expect(validate({ pin: '123' }, schema).valid).toBe(false);
+    expect(validate({ pin: '12345' }, schema).valid).toBe(false);
+  });
 });

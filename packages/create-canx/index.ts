@@ -81,6 +81,7 @@ function getPackageJson(options: ProjectOptions) {
     scripts["dev"] = "concurrently \"bun run dev:server\" \"bun run dev:css\"";
     scripts["build:css"] = "bunx tailwindcss -i ./src/index.css -o ./public/css/app.css --minify";
     scripts["build"] = "bun run build:server && bun run build:css";
+    scripts["prepare"] = "bun run build:css";
   } else {
     scripts["dev"] = "bun run dev:server";
     scripts["build"] = "bun run build:server";
@@ -89,7 +90,18 @@ function getPackageJson(options: ProjectOptions) {
   if (options.prisma) {
     scripts["db:migrate"] = "prisma migrate dev";
     scripts["db:studio"] = "prisma studio";
+  } else {
+    // Native CanxJS Migration Scripts
+    scripts["migrate"] = "bunx canx migrate";
+    scripts["migrate:rollback"] = "bunx canx migrate:rollback";
+    scripts["migrate:refresh"] = "bunx canx migrate:refresh";
   }
+
+  // Common CLI shortcuts
+  scripts["canx"] = "bunx canx";
+  scripts["make:controller"] = "bunx canx make:controller";
+  scripts["make:model"] = "bunx canx make:model";
+  scripts["make:migration"] = "bunx canx make:migration";
 
   return JSON.stringify({
     name: options.name,
@@ -117,6 +129,8 @@ function getTsConfig() {
       baseUrl: '.',
       paths: { '@/*': ['./src/*'] },
       allowJs: true,
+      experimentalDecorators: true,
+      emitDecoratorMetadata: true,
     },
     include: ['src/**/*'],
   }, null, 2);
@@ -132,23 +146,28 @@ function getAppContent(options: ProjectOptions) {
   const isTs = options.language === 'typescript';
   
   if (options.type === 'microservice') {
+    const typeAnnot = isTs ? "import type { CanxRequest, CanxResponse } from 'canxjs';" : "";
+    const reqType = isTs ? ": CanxRequest" : "";
+    const resType = isTs ? ": CanxResponse" : "";
+
     return `import { createApp } from 'canxjs';
+${typeAnnot}
 
 const app = createApp({ 
   port: Number(process.env.PORT) || 3000,
-  name: '${options.name}'
 });
 
-app.get('/health', (req, res) => res.json({ status: 'ok', service: '${options.name}' }));
-app.get('/', (req, res) => res.json({ message: 'Microservice is running' }));
+app.get('/health', (req${reqType}, res${resType}) => res.json({ status: 'ok', service: '${options.name}' }));
+app.get('/', (req${reqType}, res${resType}) => res.json({ message: 'Microservice is running' }));
 
 app.listen(() => console.log('🚀 Microservice running on port ' + (process.env.PORT || 3000)));
 `;
   }
 
+
   // MVC or API settings
   const imports = [
-    `import { createApp, logger, cors${options.type === 'mvc' ? ', serveStatic' : ''} } from 'canxjs';`,
+    `import { createApp, logger, cors, security${options.type === 'mvc' ? ', serveStatic' : ''} } from 'canxjs';`,
     `import { initDatabase } from 'canxjs';`,
     options.type === 'mvc' ? `import { webRoutes } from './routes/web';` : '',
     `import { apiRoutes } from './routes/api';`,
@@ -165,6 +184,7 @@ const app = createApp({
 
 // Middlewares
 app.use(logger());
+app.use(security());
 app.use(cors());
 ${options.type === 'mvc' ? 'app.use(serveStatic("public"));' : ''}
 
@@ -189,70 +209,133 @@ bootstrap();
 
 function getWebRoutes(options: ProjectOptions) {
   const isTs = options.language === 'typescript';
+  const { name, type, database } = options;
   const typeImport = isTs ? "import type { RouterInstance } from 'canxjs';" : "";
   const typeAnnot = isTs ? ": RouterInstance" : "";
 
-  return `${typeImport}
+  return `/**
+ * Web Routes - ${name}
+ * Project Type: MVC
+ * 
+ * These routes render HTML pages using JSX views
+ */
+${typeImport}
+import type { CanxRequest, CanxResponse } from 'canxjs';
 import { HomeController } from '../controllers/HomeController';
 
 export function webRoutes(router${typeAnnot}) {
   const home = new HomeController();
   
-  router.get('/', (req, res) => home.index(req, res));
-  router.get('/about', (req, res) => home.about(req, res));
+  // Homepage
+  router.get('/', (req: CanxRequest, res: CanxResponse) => home.index(req, res));
+  
+  // About page
+  router.get('/about', (req: CanxRequest, res: CanxResponse) => home.about(req, res));
+  
+  // Add more web routes here...
 }
 `;
 }
 
 function getApiRoutes(options: ProjectOptions) {
   const isTs = options.language === 'typescript';
-  const typeImport = isTs ? "import type { RouterInstance } from 'canxjs';" : "";
+  const { name, type, database, prisma } = options;
+  const typeImport = isTs ? "import type { RouterInstance, CanxRequest, CanxResponse } from 'canxjs';" : "";
   const typeAnnot = isTs ? ": RouterInstance" : "";
+  const reqType = isTs ? ": CanxRequest" : "";
+  const resType = isTs ? ": CanxResponse" : "";
 
-  return `${typeImport}
+  // API-only projects get more endpoints
+  const healthCheck = type === 'api' ? `
+    // Health check endpoint
+    api.get('/health', (req${reqType}, res${resType}) => res.json({ 
+      status: 'ok',
+      service: '${name}',
+      database: '${database}',
+      uptime: process.uptime()
+    }));
+
+    // API info endpoint
+    api.get('/info', (req${reqType}, res${resType}) => res.json({
+      name: '${name}',
+      version: '1.0.0',
+      type: '${type}',
+      database: '${database}'${prisma ? ",\n      orm: 'prisma'" : ''}
+    }));
+` : '';
+
+  return `/**
+ * API Routes - ${name}
+ * Project Type: ${type.toUpperCase()}
+ * Database: ${database.toUpperCase()}${prisma ? ' (Prisma)' : ''}
+ * 
+ * RESTful API endpoints
+ */
+${typeImport}
 import { UserController } from '../controllers/UserController';
 
 export function apiRoutes(router${typeAnnot}) {
   router.group('/api', (api) => {
+${healthCheck}
+    // User CRUD endpoints
     api.group('/users', (users) => {
-      users.get('/', UserController.index);
-      users.get('/:id', UserController.show);
-      users.post('/', UserController.store);
-      users.put('/:id', UserController.update);
-      users.delete('/:id', UserController.destroy);
+      users.get('/', UserController.index);       // GET /api/users
+      users.get('/:id', UserController.show);     // GET /api/users/:id
+      users.post('/', UserController.store);      // POST /api/users
+      users.put('/:id', UserController.update);   // PUT /api/users/:id
+      users.delete('/:id', UserController.destroy); // DELETE /api/users/:id
     });
+
+    // Add more API groups here...
   });
 }
-`;
+`
 }
 
 function getHomeController(options: ProjectOptions) {
   const isTs = options.language === 'typescript';
+  const { name, type, database, prisma } = options;
   const ext = isTs ? 'tsx' : 'jsx';
   const typeImports = isTs ? "import type { CanxRequest, CanxResponse } from 'canxjs';" : "";
   const reqType = isTs ? ": CanxRequest" : "";
   const resType = isTs ? ": CanxResponse" : "";
 
-  return `import { BaseController, Controller, Get, renderPage } from 'canxjs';
+  return `/**
+ * Home Controller - ${name}
+ * Project Type: MVC
+ * 
+ * Renders the main pages of the application
+ */
+import { BaseController, Controller, Get, renderPage } from 'canxjs';
 import { Welcome } from '../views/Welcome';
 ${typeImports}
 
 @Controller('/')
 export class HomeController extends BaseController {
+  // Homepage
   @Get('/')
   index(req${reqType}, res${resType}) {
-    const html = renderPage(Welcome({ version: '1.0.0' }), { 
-      title: 'Welcome - CanxJS',
-      cssPath: '/css/app.css'
+    const html = renderPage(Welcome({ 
+      version: '1.0.0',
+      projectName: '${name}',
+      projectType: '${type}',
+      database: '${database}'
+    }), { 
+      title: '${name} - CanxJS'
     });
     return res.html(html);
   }
 
+  // About page
   @Get('/about')
   about(req${reqType}, res${resType}) {
-    const html = renderPage(Welcome({ version: '1.0.0' }), { 
-      title: 'About - CanxJS',
-      cssPath: '/css/app.css'
+    const html = renderPage(Welcome({ 
+      version: '1.0.0',
+      projectName: '${name}',
+      projectType: '${type}',
+      database: '${database}'
+    }), { 
+      title: 'About - ${name}'
     });
     return res.html(html);
   }
@@ -262,51 +345,106 @@ export class HomeController extends BaseController {
 
 function getUserController(options: ProjectOptions) {
   const isTs = options.language === 'typescript';
+  const { type, database, prisma } = options;
   const typeImports = isTs ? "import type { CanxRequest, CanxResponse } from 'canxjs';" : "";
   const reqType = isTs ? ": CanxRequest" : "";
   const resType = isTs ? ": CanxResponse" : "";
 
-  return `${typeImports}
+  const headerComment = `/**
+ * User Controller
+ * Project Type: ${type.toUpperCase()}
+ * Database: ${database.toUpperCase()}${prisma ? ' (Prisma)' : ''}
+ * 
+ * Endpoints:
+ * - GET    /api/users     - List all users
+ * - GET    /api/users/:id - Get user by ID
+ * - POST   /api/users     - Create new user
+ * - PUT    /api/users/:id - Update user
+ * - DELETE /api/users/:id - Delete user
+ */`;
+
+  return `${headerComment}
+${typeImports}
 import { User } from '../models/User';
 import { validate } from 'canxjs';
 
 export class UserController {
+  // GET /api/users - List all users
   static async index(req${reqType}, res${resType}) {
-    const users = await User.all();
-    return res.json({ data: users });
+    try {
+      const users = await User.all();
+      return res.json({ 
+        success: true,
+        data: users,
+        count: users.length
+      });
+    } catch (error${isTs ? ': any' : ''}) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
   }
 
+  // GET /api/users/:id - Get user by ID
   static async show(req${reqType}, res${resType}) {
-    const user = await User.find(req.params.id);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    return res.json({ data: user });
+    try {
+      const user = await User.find(${isTs ? 'Number(req.params.id)' : 'req.params.id'});
+      if (!user) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+      return res.json({ success: true, data: user });
+    } catch (error${isTs ? ': any' : ''}) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
   }
 
+  // POST /api/users - Create new user
   static async store(req${reqType}, res${resType}) {
-    const body = await req.json();
-    const { valid, errors, data } = validate(body, {
-      name: ['required', 'string', 'min:2'],
-      email: ['required', 'email'],
-      password: ['required', 'min:8'],
-    });
+    try {
+      const body = await req.json() as Record<string, unknown>;
+      const { valid, errors, data } = validate(body, {
+        name: ['required', 'string', 'min:2'],
+        email: ['required', 'email'],
+        password: ['required', 'min:8'],
+      });
 
-    if (!valid) return res.status(422).json({ errors: Object.fromEntries(errors) });
-    
-    const user = await User.create(data);
-    return res.status(201).json({ data: user });
+      if (!valid) {
+        return res.status(422).json({ 
+          success: false, 
+          errors: Object.fromEntries(errors) 
+        });
+      }
+      
+      const user = await User.create(data as any);
+      return res.status(201).json({ success: true, data: user });
+    } catch (error${isTs ? ': any' : ''}) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
   }
 
+  // PUT /api/users/:id - Update user
   static async update(req${reqType}, res${resType}) {
-    const body = await req.json();
-    const updated = await User.updateById(req.params.id, body);
-    if (!updated) return res.status(404).json({ error: 'User not found' });
-    return res.json({ message: 'User updated' });
+    try {
+      const body = await req.json();
+      const updated = await User.updateById(${isTs ? 'Number(req.params.id)' : 'req.params.id'}, body as any);
+      if (!updated) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+      return res.json({ success: true, message: 'User updated successfully' });
+    } catch (error${isTs ? ': any' : ''}) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
   }
 
+  // DELETE /api/users/:id - Delete user
   static async destroy(req${reqType}, res${resType}) {
-    const deleted = await User.deleteById(req.params.id);
-    if (!deleted) return res.status(404).json({ error: 'User not found' });
-    return res.status(204).empty();
+    try {
+      const deleted = await User.deleteById(${isTs ? 'Number(req.params.id)' : 'req.params.id'});
+      if (!deleted) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+      return res.status(204).empty();
+    } catch (error${isTs ? ': any' : ''}) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
   }
 }
 `;
@@ -314,12 +452,93 @@ export class UserController {
 
 function getUserModel(options: ProjectOptions) {
   const isTs = options.language === 'typescript';
+  const { database, prisma, type } = options;
+  
+  // For Prisma projects, generate a simpler model that works with Prisma Client
+  if (prisma) {
+    if (isTs) {
+      return `// User model - Using Prisma Client
+// Run 'bun run db:migrate' to create the database schema
+// Then use PrismaClient to interact with the database
+
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+export class User {
+  static async all() {
+    return prisma.user.findMany();
+  }
+
+  static async find(id: number) {
+    return prisma.user.findUnique({ where: { id } });
+  }
+
+  static async findByEmail(email: string) {
+    return prisma.user.findUnique({ where: { email } });
+  }
+
+  static async create(data: { name: string; email: string; password: string }) {
+    return prisma.user.create({ data });
+  }
+
+  static async updateById(id: number, data: Partial<{ name: string; email: string }>) {
+    return prisma.user.update({ where: { id }, data });
+  }
+
+  static async deleteById(id: number) {
+    return prisma.user.delete({ where: { id } });
+  }
+}
+
+export { prisma };
+`;
+    } else {
+      return `// User model - Using Prisma Client
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+export class User {
+  static async all() {
+    return prisma.user.findMany();
+  }
+
+  static async find(id) {
+    return prisma.user.findUnique({ where: { id } });
+  }
+
+  static async findByEmail(email) {
+    return prisma.user.findUnique({ where: { email } });
+  }
+
+  static async create(data) {
+    return prisma.user.create({ data });
+  }
+
+  static async updateById(id, data) {
+    return prisma.user.update({ where: { id }, data });
+  }
+
+  static async deleteById(id) {
+    return prisma.user.delete({ where: { id } });
+  }
+}
+
+export { prisma };
+`;
+    }
+  }
+
+  // Non-Prisma: Use built-in ORM
+  const idType = database === 'sqlite' ? 'number' : 'number';
   
   if (isTs) {
     return `import { Model } from 'canxjs';
 
+// User type definition
 interface UserType {
-  id: number;
+  id: ${idType};
   name: string;
   email: string;
   password: string;
@@ -327,20 +546,29 @@ interface UserType {
   updated_at: string;
 }
 
-export class User extends Model<UserType> {
+// User model using CanxJS built-in ORM
+// Database: ${database.toUpperCase()}
+export class User extends Model {
   protected static tableName = 'users';
   protected static primaryKey = 'id';
   protected static timestamps = true;
 
-  static async findByEmail(email: string): Promise<UserType | null> {
-    return this.query<UserType>().where('email', '=', email).first();
+  // Custom query method
+  static async findByEmail(email: string): Promise<User | null> {
+    return this.query<User>().where('email', '=', email).first();
+  }
+
+  // Get active users
+  static async getActive(): Promise<User[]> {
+    return this.query<User>().where('is_active', '=', true).get();
   }
 }
 `;
   } else {
-    // JS Version
     return `import { Model } from 'canxjs';
 
+// User model using CanxJS built-in ORM
+// Database: ${database.toUpperCase()}
 export class User extends Model {
   static tableName = 'users';
   static primaryKey = 'id';
@@ -348,6 +576,10 @@ export class User extends Model {
 
   static async findByEmail(email) {
     return this.query().where('email', '=', email).first();
+  }
+
+  static async getActive() {
+    return this.query().where('is_active', '=', true).get();
   }
 }
 `;
@@ -391,17 +623,95 @@ function getAppConfig() {
 }
 
 function getEnvExample(options: ProjectOptions) {
-  const port = options.database === 'postgres' ? 5432 : 3306;
-  return `NODE_ENV=development
-PORT=3000
-APP_KEY=your-secret-key
+  const { database, prisma, name } = options;
+  const dbName = name.replace(/-/g, '_');
+  
+  // Base config - always included
+  let env = `# ==========================================
+# ${name} - Environment Configuration
+# ==========================================
 
+NODE_ENV=development
+PORT=3000
+APP_KEY=your-secret-key-change-this-in-production
+`;
+
+  // Database configuration based on prisma and database type
+  if (prisma) {
+    if (database === 'sqlite') {
+      env += `
+# ==========================================
+# Database (Prisma - SQLite)
+# ==========================================
+# SQLite needs no server setup - file created automatically
+DATABASE_URL="file:./dev.db"
+`;
+    } else if (database === 'postgres') {
+      env += `
+# ==========================================
+# Database (Prisma - PostgreSQL)
+# ==========================================
+# Format: postgresql://USER:PASSWORD@HOST:PORT/DATABASE?schema=SCHEMA
+DATABASE_URL="postgresql://postgres:password@localhost:5432/${dbName}?schema=public"
+`;
+    } else {
+      env += `
+# ==========================================
+# Database (Prisma - MySQL)
+# ==========================================
+# Format: mysql://USER:PASSWORD@HOST:PORT/DATABASE
+DATABASE_URL="mysql://root:password@localhost:3306/${dbName}"
+`;
+    }
+  } else {
+    // Non-Prisma: individual settings
+    if (database === 'sqlite') {
+      env += `
+# ==========================================
+# Database (SQLite)
+# ==========================================
+DB_CONNECTION=sqlite
+DB_DATABASE=./storage/database.sqlite
+`;
+    } else if (database === 'postgres') {
+      env += `
+# ==========================================
+# Database (PostgreSQL)
+# ==========================================
+DB_CONNECTION=postgres
 DB_HOST=localhost
-DB_PORT=${port}
-DB_NAME=canxjs_app
+DB_PORT=5432
+DB_NAME=${dbName}
+DB_USER=postgres
+DB_PASS=password
+`;
+    } else {
+      env += `
+# ==========================================
+# Database (MySQL)
+# ==========================================
+DB_CONNECTION=mysql
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=${dbName}
 DB_USER=root
 DB_PASS=
 `;
+    }
+  }
+
+  // Common optional settings
+  env += `
+# ==========================================
+# Optional Settings
+# ==========================================
+JWT_SECRET=your-jwt-secret-key
+SESSION_DRIVER=cookie
+SESSION_LIFETIME=120
+LOG_LEVEL=debug
+`;
+
+  return env;
 }
 
 function getGitignore() {
@@ -641,9 +951,12 @@ function getWelcomeView(options: ProjectOptions) {
 
 interface WelcomeProps {
   version?: string;
+  projectName?: string;
+  projectType?: string;
+  database?: string;
 }
 
-export function Welcome({ version = '1.0.0' }: WelcomeProps) {
+export function Welcome({ version = '1.0.0', projectName = 'CanxJS App', projectType = 'MVC', database = 'MySQL' }: WelcomeProps) {
   return (
     <>
       <head>
@@ -864,9 +1177,13 @@ Examples:
     prisma: false
   };
 
+  // Validate and get final options
+  const validTypes: ProjectType[] = ['api', 'mvc', 'microservice'];
+  const resolvedType = validTypes.includes(flags.type as ProjectType) ? flags.type as ProjectType : answers.type;
+  
   const finalOptions: ProjectOptions = {
     name: projectName!,
-    type: (flags.type as ProjectType) || answers.type || defaultOptions.type,
+    type: resolvedType || defaultOptions.type,
     language: (flags.language as Language) || answers.language || defaultOptions.language,
     database: (flags.database as Database) || answers.database || defaultOptions.database,
     prisma: flags.prisma === true || flags.prisma === 'true' || answers.prisma === true || false

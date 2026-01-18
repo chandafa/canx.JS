@@ -31,7 +31,7 @@ export { TestClient } from './testing/TestClient';
 // ============================================
 export { BaseController, Controller, Get, Post, Put, Patch, Delete, Middleware, Validate, getControllerMeta } from './mvc/Controller';
 export { Model, QueryBuilderImpl, initDatabase, closeDatabase, query, execute } from './mvc/Model';
-export { jsx, jsxs, Fragment, html, render, renderPage, createLayout, View } from './mvc/View';
+export { jsx, jsxs, Fragment, html, render, renderPage, createLayout, View, view, viewExists } from './mvc/View';
 
 // ============================================
 // Feature Exports
@@ -60,6 +60,38 @@ export {
   sessionStore,
   DatabaseSessionDriver,
 } from './auth/Auth';
+
+// Authorization (Gates & Policies)
+export {
+  gate,
+  defineGate,
+  definePolicy,
+  registerPolicy,
+  allows,
+  denies,
+  authorize,
+  can,
+  cannot,
+  canAny,
+  Gate,
+  UserGate,
+  AuthorizationException,
+} from './auth/Gate';
+export type { Ability, Policy, PolicyClass, GateCallback } from './auth/Gate';
+
+// Auth Guards
+export {
+  authManager,
+  initAuth,
+  authMiddleware,
+  requireAuth,
+  guestOnly,
+  SessionGuard,
+  TokenGuard,
+  JwtGuard,
+  AuthManager,
+} from './auth/Guard';
+export type { AuthUser, GuardDriver, GuardConfig } from './auth/Guard';
 
 // ============================================
 // Database Exports
@@ -111,7 +143,7 @@ export type { ServiceProvider } from './container/Container';
 // ============================================
 // Utils Exports
 // ============================================
-export { validate, validateAsync, is } from './utils/Validator';
+export { validate, validateAsync, is, extend, extendAsync, extendParam, setMessage } from './utils/Validator';
 // Utils - Request/Response
 export { ResponseBuilder, response } from './utils/Response';
 export { RequestParser, parseRequest } from './utils/Request';
@@ -125,6 +157,15 @@ export { CanxException } from './core/exceptions/CanxException';
 export { HttpException } from './core/exceptions/HttpException';
 export { NotFoundException } from './core/exceptions/NotFoundException';
 export { ValidationException } from './core/exceptions/ValidationException';
+export { ViewNotFoundException } from './core/exceptions/ViewNotFoundException';
+export { UnauthorizedException } from './core/exceptions/UnauthorizedException';
+export { ForbiddenException } from './core/exceptions/ForbiddenException';
+export { MethodNotAllowedException } from './core/exceptions/MethodNotAllowedException';
+export { BadRequestException } from './core/exceptions/BadRequestException';
+export { ConflictException } from './core/exceptions/ConflictException';
+export { TooManyRequestsException } from './core/exceptions/TooManyRequestsException';
+export { ServiceUnavailableException } from './core/exceptions/ServiceUnavailableException';
+export { InternalServerException } from './core/exceptions/InternalServerException';
 export {
   CanxError,
   ValidationError,
@@ -167,6 +208,98 @@ export type { HealthCheckResult, HealthReport, HealthStatus, HealthChecker } fro
 // Internationalization
 export { initI18n, useI18n, t, plural, I18n, i18nMiddleware } from './utils/i18n';
 export type { I18nConfig, TranslationObject } from './utils/i18n';
+
+// ============================================
+// Security Exports
+// ============================================
+
+// Hashing (bcrypt, argon2, scrypt)
+export { 
+  hash, 
+  hashPassword as hashMake, 
+  verifyPassword as hashCheck, 
+  needsRehash, 
+  Hash 
+} from './utils/Hash';
+export type { HashDriver, HashOptions } from './utils/Hash';
+
+// Encryption (AES-256-GCM)
+export { 
+  encryptor, 
+  initEncrypt, 
+  encrypt, 
+  decrypt, 
+  generateKey, 
+  deriveKey, 
+  Encrypt 
+} from './utils/Encrypt';
+export type { EncryptedPayload, EncryptConfig } from './utils/Encrypt';
+
+// ============================================
+// Pagination Exports
+// ============================================
+export { 
+  Paginator, 
+  SimplePaginator, 
+  CursorPaginator, 
+  paginate, 
+  simplePaginate, 
+  cursorPaginate 
+} from './utils/Paginator';
+export type { 
+  PaginatedResult, 
+  PaginationMeta, 
+  PaginationLinks, 
+  PaginatorOptions 
+} from './utils/Paginator';
+
+// ============================================
+// Form Request Exports
+// ============================================
+export {
+  FormRequest,
+  formRequest,
+  validated,
+  getFormRequest,
+  createFormRequest,
+  ValidateWith,
+} from './utils/FormRequest';
+export type { FormRequestOptions } from './utils/FormRequest';
+
+// ============================================
+// API Resource Exports
+// ============================================
+export {
+  JsonResource,
+  Resource,
+  ResourceCollection,
+  AnonymousResource,
+  resource,
+  collection as resourceCollection,
+  wrap,
+  success,
+  error,
+  when,
+  whenNotNull,
+  whenLoaded,
+  mergeWhen,
+} from './utils/Resource';
+export type {
+  ResourceData,
+  ResourceMeta,
+  ResourceLinks,
+  ResourceResponse,
+} from './utils/Resource';
+
+// ============================================
+// Collection Exports
+// ============================================
+export {
+  Collection,
+  collect,
+  range,
+  times,
+} from './utils/Collection';
 
 // ============================================
 // Testing Exports

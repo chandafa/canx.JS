@@ -63,6 +63,8 @@ export interface CanxRequest {
   timestamp: number;
   /** Request ID for tracing */
   id: string;
+  /** Authenticated user (set by auth middleware) */
+  user?: unknown;
 }
 
 export interface CanxResponse {

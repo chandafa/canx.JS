@@ -5,7 +5,7 @@ import type { Command } from '../Command';
 
 export class MakeCommand implements Command {
   signature = 'make:<type> <name>';
-  description = 'Create a new component (controller, model, middleware, migration, seeder)';
+  description = 'Create a new component (controller, model, middleware, migration, seeder, request, resource, policy, service)';
 
   async handle(args: string[], flags: Record<string, any>) {
     // args[0] is command name "make:model", args[1] is name "User"
@@ -77,11 +77,39 @@ export class MakeGenerator implements Command {
                 break;
             case 'seeder':
                 content = this.getSeeder(name);
-                targetPath = join(cwd, 'src/database/seeders', `${name}.ts`); // Wait, seeding in CanxJS uses src/database/Seed.ts? Or separate files?
-                // Migration.ts has `seeder`.
-                // Users might want separate seeders.
-                // Assuming src/database/seeders structure.
                 targetPath = join(cwd, 'src/database/seeders', `${name}.ts`);
+                break;
+            case 'request':
+                content = this.getRequest(name);
+                targetPath = join(cwd, 'src/requests', `${name}.ts`);
+                break;
+            case 'resource':
+                content = this.getResource(name);
+                targetPath = join(cwd, 'src/resources', `${name}.ts`);
+                break;
+            case 'policy':
+                content = this.getPolicy(name);
+                targetPath = join(cwd, 'src/policies', `${name}.ts`);
+                break;
+            case 'service':
+                content = this.getService(name);
+                targetPath = join(cwd, 'src/services', `${name}.ts`);
+                break;
+            case 'event':
+                content = this.getEvent(name);
+                targetPath = join(cwd, 'src/events', `${name}.ts`);
+                break;
+            case 'job':
+                content = this.getJob(name);
+                targetPath = join(cwd, 'src/jobs', `${name}.ts`);
+                break;
+            case 'notification':
+                content = this.getNotification(name);
+                targetPath = join(cwd, 'src/notifications', `${name}.ts`);
+                break;
+            case 'mail':
+                content = this.getMail(name);
+                targetPath = join(cwd, 'src/mails', `${name}.ts`);
                 break;
         }
 
@@ -150,6 +178,315 @@ export default defineMigration(
 export default defineSeeder(async () => {
   // await User.create({ ... });
 });
+`;
+    }
+
+    getRequest(name: string) {
+        return `import { FormRequest, type ValidationSchema } from 'canxjs';
+
+export class ${name} extends FormRequest {
+  /**
+   * Determine if the user is authorized to make this request.
+   */
+  authorize(): boolean {
+    return true;
+  }
+
+  /**
+   * Get the validation rules that apply to the request.
+   */
+  rules(): ValidationSchema {
+    return {
+      // name: 'required|string|min:3',
+      // email: 'required|email',
+    };
+  }
+
+  /**
+   * Custom error messages (optional).
+   */
+  messages(): Record<string, string> {
+    return {
+      // 'name.required': 'Please provide a name.',
+    };
+  }
+}
+`;
+    }
+
+    getResource(name: string) {
+        // Extract model name from resource name (e.g., UserResource -> User)
+        const modelName = name.replace(/Resource$/, '');
+        return `import { JsonResource, when, type CanxRequest } from 'canxjs';
+
+export class ${name} extends JsonResource<any> {
+  /**
+   * Transform the resource into an array.
+   */
+  toArray(request?: CanxRequest): Record<string, unknown> {
+    return {
+      id: this.resource.id,
+      // name: this.resource.name,
+      // email: this.resource.email,
+      // created_at: this.resource.created_at,
+      
+      // Conditional attributes
+      // secret: when(this.resource.isAdmin, this.resource.secret),
+    };
+  }
+}
+`;
+    }
+
+    getPolicy(name: string) {
+        // Extract model name from policy name (e.g., PostPolicy -> Post)
+        const modelName = name.replace(/Policy$/, '');
+        return `import { definePolicy } from 'canxjs';
+
+/**
+ * Policy for ${modelName} authorization.
+ */
+export const ${name} = definePolicy({
+  /**
+   * Determine if the user can view any ${modelName.toLowerCase()}s.
+   */
+  viewAny(user: any): boolean {
+    return true;
+  },
+
+  /**
+   * Determine if the user can view the ${modelName.toLowerCase()}.
+   */
+  view(user: any, ${modelName.toLowerCase()}: any): boolean {
+    return true;
+  },
+
+  /**
+   * Determine if the user can create ${modelName.toLowerCase()}s.
+   */
+  create(user: any): boolean {
+    return true;
+  },
+
+  /**
+   * Determine if the user can update the ${modelName.toLowerCase()}.
+   */
+  update(user: any, ${modelName.toLowerCase()}: any): boolean {
+    return user.id === ${modelName.toLowerCase()}.user_id;
+  },
+
+  /**
+   * Determine if the user can delete the ${modelName.toLowerCase()}.
+   */
+  delete(user: any, ${modelName.toLowerCase()}: any): boolean {
+    return user.id === ${modelName.toLowerCase()}.user_id;
+  },
+});
+`;
+    }
+
+    getService(name: string) {
+        return `import { Injectable } from 'canxjs';
+
+/**
+ * ${name} Service
+ * Business logic should be placed in services for better separation of concerns.
+ */
+@Injectable()
+export class ${name} {
+  /**
+   * Example method - replace with your business logic
+   */
+  async findAll(): Promise<any[]> {
+    // Implement your logic here
+    return [];
+  }
+
+  /**
+   * Example method - replace with your business logic
+   */
+  async findById(id: number): Promise<any | null> {
+    // Implement your logic here
+    return null;
+  }
+
+  /**
+   * Example method - replace with your business logic
+   */
+  async create(data: Record<string, unknown>): Promise<any> {
+    // Implement your logic here
+    return data;
+  }
+
+  /**
+   * Example method - replace with your business logic
+   */
+  async update(id: number, data: Record<string, unknown>): Promise<any> {
+    // Implement your logic here
+    return { id, ...data };
+  }
+
+  /**
+   * Example method - replace with your business logic
+   */
+  async delete(id: number): Promise<boolean> {
+    // Implement your logic here
+    return true;
+  }
+}
+`;
+    }
+
+    getEvent(name: string) {
+        return `import { events } from 'canxjs';
+
+/**
+ * ${name} Event
+ * Events are dispatched when something happens in your application.
+ */
+export class ${name} {
+  constructor(
+    public readonly data: Record<string, unknown>
+  ) {}
+
+  /**
+   * Dispatch this event
+   */
+  static dispatch(data: Record<string, unknown>): void {
+    events.emit('${name}', new ${name}(data));
+  }
+}
+
+/**
+ * Register event listener
+ * Add this to your bootstrap file or service provider
+ */
+export function register${name}Listeners(): void {
+  events.on('${name}', (event: ${name}) => {
+    // Handle the event
+    console.log('${name} received:', event.data);
+  });
+}
+`;
+    }
+
+    getJob(name: string) {
+        return `import { queue } from 'canxjs';
+
+/**
+ * ${name} Job
+ * Jobs are queued tasks that can be processed asynchronously.
+ */
+export interface ${name}Data {
+  // Define your job payload here
+  id?: number;
+  [key: string]: unknown;
+}
+
+export class ${name} {
+  static readonly jobName = '${name.toLowerCase()}';
+
+  /**
+   * Dispatch this job to the queue
+   */
+  static async dispatch(data: ${name}Data): Promise<string> {
+    return queue.dispatch(${name}.jobName, data);
+  }
+
+  /**
+   * Handle the job
+   * This is called when the job is processed
+   */
+  static async handle(data: ${name}Data): Promise<void> {
+    // Implement your job logic here
+    console.log('Processing ${name}:', data);
+  }
+
+  /**
+   * Register this job handler
+   * Call this in your bootstrap file
+   */
+  static register(): void {
+    queue.define(${name}.jobName, ${name}.handle);
+  }
+}
+`;
+    }
+
+    getNotification(name: string) {
+        return `import { Notification } from 'canxjs';
+import type { Notifiable, NotificationChannel } from 'canxjs';
+
+/**
+ * ${name} Notification
+ * Notifications can be sent via mail, database, or other channels.
+ */
+export class ${name} extends Notification {
+  constructor(
+    private data: Record<string, unknown>
+  ) {
+    super();
+  }
+
+  /**
+   * Define which channels this notification should be sent through
+   */
+  via(notifiable: Notifiable): NotificationChannel[] {
+    return ['mail', 'database'];
+  }
+
+  /**
+   * Get the mail representation of the notification
+   */
+  toMail(notifiable: Notifiable): Record<string, unknown> {
+    return {
+      subject: '${name} Notification',
+      body: 'You have a new notification.',
+      data: this.data,
+    };
+  }
+
+  /**
+   * Get the database representation of the notification
+   */
+  toDatabase(notifiable: Notifiable): Record<string, unknown> {
+    return {
+      type: '${name}',
+      data: this.data,
+    };
+  }
+}
+`;
+    }
+
+    getMail(name: string) {
+        return `import { MailBuilder } from 'canxjs';
+
+/**
+ * ${name} Mail
+ * Mailable classes encapsulate email logic.
+ */
+export class ${name} {
+  constructor(
+    private data: Record<string, unknown> = {}
+  ) {}
+
+  /**
+   * Build the email
+   */
+  build(): MailBuilder {
+    return new MailBuilder()
+      .subject('${name.replace(/([A-Z])/g, ' $1').trim()}')
+      .view('emails/${name.toLowerCase()}', this.data);
+  }
+
+  /**
+   * Send to a recipient
+   */
+  async sendTo(email: string): Promise<void> {
+    await this.build().to(email).send();
+  }
+}
 `;
     }
 }

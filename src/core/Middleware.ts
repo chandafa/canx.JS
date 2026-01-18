@@ -4,6 +4,7 @@
 
 import type { CanxRequest, CanxResponse, MiddlewareHandler, NextFunction } from '../types';
 import { createCanxRequest, createCanxResponse } from './Server';
+import * as path from 'node:path';
 
 export class MiddlewarePipeline {
   private middlewares: MiddlewareHandler[] = [];
@@ -115,16 +116,9 @@ export const serveStatic = (root: string = 'public', options: {
 } = {}): MiddlewareHandler => {
   const { index = 'index.html', maxAge = 86400 } = options;
   
-  // Use path utilities inline to avoid import issues
-  const isAbsolute = (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
-  const join = (...parts: string[]) => parts.join('/').replace(/\/+/g, '/');
-  const extname = (p: string) => {
-    const lastDot = p.lastIndexOf('.');
-    const lastSlash = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
-    return lastDot > lastSlash ? p.slice(lastDot) : '';
-  };
+
   
-  const rootPath = isAbsolute(root) ? root : join(process.cwd(), root);
+  const rootPath = path.isAbsolute(root) ? root : path.join(process.cwd(), root);
   
   const mimeTypes: Record<string, string> = {
     '.html': 'text/html',
@@ -156,21 +150,21 @@ export const serveStatic = (root: string = 'public', options: {
 
     // Clean the path to prevent directory traversal
     const cleanPath = req.path.replace(/\.\./g, '').replace(/\/+/g, '/');
-    let filePath = join(rootPath, cleanPath);
+    let filePath = path.join(rootPath, cleanPath);
     
     try {
       let file = Bun.file(filePath);
       
       // Check if it's a directory by trying index file
       if (!(await file.exists())) {
-        file = Bun.file(join(filePath, index));
+        file = Bun.file(path.join(filePath, index));
         if (!(await file.exists())) {
           return next();
         }
-        filePath = join(filePath, index);
+        filePath = path.join(filePath, index);
       }
       
-      const ext = extname(filePath).toLowerCase();
+      const ext = path.extname(filePath).toLowerCase();
       const contentType = mimeTypes[ext] || 'application/octet-stream';
       
       return new Response(file, {

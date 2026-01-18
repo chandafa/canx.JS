@@ -28,6 +28,14 @@ export class Console {
       this.register(new MakeGenerator('middleware'));
       this.register(new MakeGenerator('migration'));
       this.register(new MakeGenerator('seeder'));
+      this.register(new MakeGenerator('request'));
+      this.register(new MakeGenerator('resource'));
+      this.register(new MakeGenerator('policy'));
+      this.register(new MakeGenerator('service'));
+      this.register(new MakeGenerator('event'));
+      this.register(new MakeGenerator('job'));
+      this.register(new MakeGenerator('notification'));
+      this.register(new MakeGenerator('mail'));
     }
 
   register(command: Command) {

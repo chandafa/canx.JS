@@ -3,6 +3,7 @@
  */
 
 import type { LayoutProps } from '../types';
+import { ViewNotFoundException } from '../core/exceptions/ViewNotFoundException';
 
 // Fragment symbol for JSX
 export const Fragment = Symbol.for('canxjs.fragment');
@@ -120,4 +121,98 @@ export function View(component: any, props: Record<string, any> = {}): string {
   return renderPage(() => String(component));
 }
 
-export default { jsx, jsxs, Fragment, html, render, renderPage, createLayout, View };
+/**
+ * Load and render a view file by name
+ * Similar to Laravel's view() helper
+ * 
+ * @param name - View name using dot notation (e.g., 'pages.home', 'auth.login')
+ * @param props - Data to pass to the view
+ * @param options - Render options
+ * @returns Rendered HTML string
+ * 
+ * @example
+ * // Load views/pages/home.tsx
+ * return await view('pages.home', { title: 'Welcome' });
+ * 
+ * // Load views/auth/login.tsx
+ * return await view('auth.login', { error: null });
+ */
+export async function view(
+  name: string, 
+  props: Record<string, any> = {},
+  options?: { title?: string; meta?: Record<string, string>; head?: string }
+): Promise<string> {
+  // Convert dot notation to path
+  const viewPath = name.replace(/\./g, '/');
+  
+  // Possible view file extensions and paths
+  const extensions = ['.tsx', '.jsx', '.ts', '.js'];
+  const basePaths = [
+    process.cwd() + '/views',
+    process.cwd() + '/src/views',
+    process.cwd() + '/resources/views',
+  ];
+  
+  const searchedPaths: string[] = [];
+  
+  // Try to find the view file
+  for (const base of basePaths) {
+    for (const ext of extensions) {
+      const fullPath = `${base}/${viewPath}${ext}`;
+      searchedPaths.push(fullPath);
+      
+      try {
+        const file = Bun.file(fullPath);
+        if (await file.exists()) {
+          // Dynamic import the view file
+          const viewModule = await import(fullPath);
+          const ViewComponent = viewModule.default || viewModule[Object.keys(viewModule)[0]];
+          
+          if (typeof ViewComponent === 'function') {
+            const result = ViewComponent(props);
+            return renderPage(() => result, options);
+          } else if (typeof ViewComponent === 'string') {
+            return renderPage(() => ViewComponent, options);
+          }
+        }
+      } catch (error) {
+        // Continue to next path
+        continue;
+      }
+    }
+  }
+  
+  // View not found - throw exception
+  throw new ViewNotFoundException(name, searchedPaths);
+}
+
+/**
+ * Check if a view exists
+ * 
+ * @param name - View name using dot notation
+ * @returns true if view exists, false otherwise
+ */
+export async function viewExists(name: string): Promise<boolean> {
+  const viewPath = name.replace(/\./g, '/');
+  const extensions = ['.tsx', '.jsx', '.ts', '.js'];
+  const basePaths = [
+    process.cwd() + '/views',
+    process.cwd() + '/src/views',
+    process.cwd() + '/resources/views',
+  ];
+  
+  for (const base of basePaths) {
+    for (const ext of extensions) {
+      const fullPath = `${base}/${viewPath}${ext}`;
+      const file = Bun.file(fullPath);
+      if (await file.exists()) {
+        return true;
+      }
+    }
+  }
+  
+  return false;
+}
+
+export default { jsx, jsxs, Fragment, html, render, renderPage, createLayout, View, view, viewExists };
+
