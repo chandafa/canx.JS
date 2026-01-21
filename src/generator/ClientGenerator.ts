@@ -14,9 +14,6 @@ export class ClientGenerator {
 
     // Helper to get schema name
     const getSchemaName = (schema: any): string => {
-        // This is a simplification. In a real scenario we might need better schema naming strategies
-        // or allow users to name their schemas.
-        // For now, we will try to generate a hash or use a description if available.
         return 'Schema' + Math.random().toString(36).substring(7);
     };
 
@@ -70,13 +67,6 @@ export class ApiClient {
              });
 
              const funcName = route.method + route.path.replace(/\//g, '_').replace(/:/g, '').replace(/^_/, '') || 'index';
-             // Clean up funcName (e.g. get_users_id -> getById in users scope ideally, but let's keep it simple first)
-             // Simple mapping: 
-             // GET /users -> list
-             // GET /users/:id -> get
-             // POST /users -> create
-             // PUT /users/:id -> update
-             // DELETE /users/:id -> delete
              
              let cleanFuncName = method;
              const parts = route.path.split('/').filter(Boolean);
@@ -89,8 +79,6 @@ export class ApiClient {
                  if (method === 'post') cleanFuncName = 'create';
              }
 
-             // Check if route has body validation schema attached (we'd need to store this meta in route first)
-             // For now, allow 'data: any'
              const args = [...pathParams, ...(method !== 'get' ? ['data?: any'] : [])].join(', ');
              
              clientMethods.push(`    ${cleanFuncName}: (${args}) => this.request('${route.method}', \`${jsPath}\` ${method !== 'get' ? ', data' : ''}),`);
@@ -99,7 +87,43 @@ export class ApiClient {
          clientMethods.push(`  };`);
     }
 
-    clientMethods.push(`}`);
+    clientMethods.push('}');
+
+    // ==========================================
+    // WebSocket Client
+    // ==========================================
+    clientMethods.push(`
+export class WsClient {
+  private socket: WebSocket | null = null;
+  private messageHandlers: Map<string, (data: any) => void> = new Map();
+
+  constructor(private url: string) {}
+
+  connect() {
+    this.socket = new WebSocket(this.url);
+    this.socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data as string);
+        if (payload.event && this.messageHandlers.has(payload.event)) {
+          this.messageHandlers.get(payload.event)!(payload.data);
+        }
+      } catch (e) {}
+    };
+  }
+
+  on(event: string, callback: (data: any) => void) {
+    this.messageHandlers.set(event, callback);
+  }
+
+  emit(event: string, data: any) {
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({ event, data }));
+    } else {
+      console.warn('WebSocket is not connected');
+    }
+  }
+}
+`);
 
     const output = `/**
  * CanxJS Auto-Generated Client

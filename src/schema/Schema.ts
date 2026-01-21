@@ -1,4 +1,4 @@
-import { ValidationError } from '../utils/ErrorHandler';
+import { ValidationException } from '../core/exceptions/ValidationException';
 
 // ============================================
 // Core Types
@@ -9,7 +9,7 @@ export type Infer<T extends Schema<any>> = T['_output'];
 export interface ParseResult<T> {
   success: boolean;
   data?: T;
-  error?: ValidationError;
+  error?: ValidationException;
 }
 
 export abstract class Schema<Output = any, Input = unknown> {
@@ -26,7 +26,7 @@ export abstract class Schema<Output = any, Input = unknown> {
       const data = this.parse(value);
       return { success: true, data };
     } catch (error) {
-       if (error instanceof ValidationError) {
+       if (error instanceof ValidationException) {
         return { success: false, error };
        }
        throw error;
@@ -78,13 +78,13 @@ class StringSchema extends Schema<string> {
     }
 
     if (typeof value !== 'string') {
-      throw new ValidationError({ _errors: ['Expected string, received ' + typeof value] });
+      throw new ValidationException({ _errors: ['Expected string, received ' + typeof value] });
     }
 
     for (const check of this.checks) {
       const error = check(value);
       if (error) {
-        throw new ValidationError({ _errors: [error] });
+        throw new ValidationException({ _errors: [error] });
       }
     }
 
@@ -127,7 +127,7 @@ class NumberSchema extends Schema<number> {
          const num = parseFloat(value);
          return this.validateChecks(num);
        }
-      throw new ValidationError({ _errors: ['Expected number, received ' + typeof value] });
+      throw new ValidationException({ _errors: ['Expected number, received ' + typeof value] });
     }
 
     return this.validateChecks(value);
@@ -137,7 +137,7 @@ class NumberSchema extends Schema<number> {
     for (const check of this.checks) {
       const error = check(value);
       if (error) {
-        throw new ValidationError({ _errors: [error] });
+        throw new ValidationException({ _errors: [error] });
       }
     }
     return value;
@@ -165,7 +165,7 @@ class BooleanSchema extends Schema<boolean> {
     if (value === 'true') return true;
     if (value === 'false') return false;
 
-    throw new ValidationError({ _errors: ['Expected boolean, received ' + typeof value] });
+    throw new ValidationException({ _errors: ['Expected boolean, received ' + typeof value] });
   }
 
   getJsonSchema(): Record<string, any> {
@@ -191,7 +191,7 @@ class ObjectSchema<T extends Record<string, Schema<any>>> extends Schema<{ [K in
     }
 
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      throw new ValidationError({ _errors: ['Expected object, received ' + typeof value] });
+      throw new ValidationException({ _errors: ['Expected object, received ' + typeof value] });
     }
 
     const result: any = {};
@@ -200,12 +200,12 @@ class ObjectSchema<T extends Record<string, Schema<any>>> extends Schema<{ [K in
     for (const [key, schema] of Object.entries(this.shape)) {
       try {
         result[key] = schema.parse((value as any)[key]);
-      } catch (error) {
-        if (error instanceof ValidationError) {
-           const fieldErrors = error.errors.get('_errors') || [];
+      } catch (err: unknown) {
+        if (err instanceof ValidationException) {
+           const fieldErrors = err.errors.get('_errors') || [];
             // If the child error has map errors (nested object), merge them
-            if (error.errors.size > 0 && !error.errors.has('_errors')) {
-               error.errors.forEach((msgs, path) => {
+            if (err.errors.size > 0 && !err.errors.has('_errors')) {
+               err.errors.forEach((msgs: string[], path: string) => {
                  errors.set(`${key}.${path}`, msgs);
                });
             } else {
@@ -218,7 +218,7 @@ class ObjectSchema<T extends Record<string, Schema<any>>> extends Schema<{ [K in
     }
 
     if (errors.size > 0) {
-      throw new ValidationError(errors);
+      throw new ValidationException(errors);
     }
 
     return result;
@@ -262,17 +262,17 @@ class ArraySchema<T extends Schema<any>> extends Schema<Infer<T>[]> {
     }
 
     if (!Array.isArray(value)) {
-      throw new ValidationError({ _errors: ['Expected array, received ' + typeof value] });
+      throw new ValidationException({ _errors: ['Expected array, received ' + typeof value] });
     }
 
     return value.map((item, index) => {
       try {
         return this.element.parse(item);
-      } catch (error) {
-        if (error instanceof ValidationError) {
-           throw new ValidationError({ [index]: error.errors.get('_errors') || ['Invalid Item'] });
+      } catch (err: unknown) {
+        if (err instanceof ValidationException) {
+           throw new ValidationException({ [index]: err.errors.get('_errors') || ['Invalid Item'] });
         }
-        throw error;
+        throw err;
       }
     });
   }

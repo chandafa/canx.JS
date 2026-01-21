@@ -52,6 +52,10 @@ describe("Queue System", () => {
   });
 
   test("should retry failed jobs", async () => {
+    // Suppress expected error log
+    const originalError = console.error;
+    console.error = () => {};
+
     let attempts = 0;
     
     queue.define("fail-job", async () => {

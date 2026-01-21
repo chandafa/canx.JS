@@ -98,6 +98,8 @@ export interface CanxResponse {
   empty: (status?: number) => Response;
   /** Server-sent events stream */
   sse: (generator: AsyncGenerator<string>) => Response;
+  /** Whether headers have been sent */
+  headersSent: boolean;
 }
 
 export interface CookieOptions {

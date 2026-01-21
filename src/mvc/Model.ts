@@ -108,7 +108,31 @@ interface RelationInfo {
   pivotTable?: string;
   foreignPivotKey?: string;
   relatedPivotKey?: string;
+  morphName?: string;
+  morphType?: string;
+  morphId?: string;
+  throughClass?: any;
+  firstKey?: string;
+  secondKey?: string;
 }
+
+// Observer Interface
+export interface ModelObserver {
+  creating?(model: Model): void | Promise<void>;
+  created?(model: Model): void | Promise<void>;
+  updating?(model: Model): void | Promise<void>;
+  updated?(model: Model): void | Promise<void>;
+  saving?(model: Model): void | Promise<void>;
+  saved?(model: Model): void | Promise<void>;
+  deleting?(model: Model): void | Promise<void>;
+  deleted?(model: Model): void | Promise<void>;
+  restoring?(model: Model): void | Promise<void>;
+  restored?(model: Model): void | Promise<void>;
+}
+
+// Cast Types
+export type CastType = 'string' | 'int' | 'integer' | 'real' | 'float' | 'double' | 'boolean' | 'bool' 
+                     | 'date' | 'datetime' | 'timestamp' | 'json' | 'array' | 'collection' | 'encrypted';
 
 // Query Builder implementation
 export class QueryBuilderImpl<T> implements QueryBuilder<T> {
@@ -125,6 +149,7 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
   
   // Model mapping
   private modelClass?: any;
+  private withTrashed: boolean = false;
   
   // Eager Loading
   private withRelations: string[] = [];
@@ -212,6 +237,18 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
     let sql = `SELECT ${this.selectCols.join(', ')} FROM ${this.table}`;
     if (this.joinClauses.length) sql += ' ' + this.joinClauses.join(' ');
     if (this.whereClauses.length) sql += ' WHERE ' + this.whereClauses.join(' AND ');
+
+    // Soft Deletes Scope
+    if (this.modelClass && (this.modelClass as any).softDeletes && !this.withTrashed) {
+       const deletedAtCol = (this.modelClass as any).deletedAtColumn || 'deleted_at';
+       // Check if we already have a wrapper for deleted_at
+       const hasDeletedClause = this.whereClauses.some(c => c.includes(deletedAtCol));
+       if (!hasDeletedClause) {
+          const prefix = this.whereClauses.length ? ' AND ' : ' WHERE ';
+          sql += `${prefix}${this.table}.${deletedAtCol} IS NULL`;
+       }
+    }
+
     if (this.groupClauses.length) sql += ' GROUP BY ' + this.groupClauses.join(', ');
     if (this.havingClauses.length) sql += ' HAVING ' + this.havingClauses.join(' AND ');
     if (this.orderClauses.length) sql += ' ORDER BY ' + this.orderClauses.join(', ');
@@ -330,6 +367,34 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
              
              parent.relations[relationName] = relatedResults.filter((r: any) => myRelatedIds.includes(r.id));
           }
+      } else if (info.type === 'morphOne' || info.type === 'morphMany') {
+          // Polymorphic relation loading
+          const localKey = (info as any).localKey || 'id';
+          const morphId = (info as any).morphId; // e.g. imageable_id
+          const morphType = (info as any).morphType; // e.g. imageable_type
+          const morphTypeName = this.modelClass.name; // e.g. 'User'
+          
+          const parentIds = results.map(r => r[localKey]).filter(id => id !== undefined && id !== null);
+          if (parentIds.length === 0) continue;
+          const uniqueIds = [...new Set(parentIds)];
+          
+          // Fetch related where morphId IN (ids) AND morphType = 'ParentClassName'
+          const relatedResults = await info.relatedClass.query()
+              .whereIn(morphId, uniqueIds)
+              .where(morphType, '=', morphTypeName)
+              .get();
+          
+          // Map back
+          for (const parent of results) {
+             const parentId = parent[localKey];
+             parent.startRelation(relationName);
+             
+             if (info.type === 'morphOne') {
+                parent.relations[relationName] = relatedResults.find((r: any) => r[morphId] == parentId) || null;
+             } else {
+                parent.relations[relationName] = relatedResults.filter((r: any) => r[morphId] == parentId);
+             }
+          }
       }
     }
   }
@@ -371,10 +436,27 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
   }
 
   async delete(): Promise<number> {
+    if (this.modelClass && (this.modelClass as any).softDeletes && !this.withTrashed) { // Allow force delete logic if explicit
+        const deletedAtCol = (this.modelClass as any).deletedAtColumn || 'deleted_at';
+        return this.update({ [deletedAtCol]: new Date().toISOString().slice(0, 19).replace('T', ' ') } as any);
+    }
+
     let sql = `DELETE FROM ${this.table}`;
     if (this.whereClauses.length) sql += ' WHERE ' + this.whereClauses.join(' AND ');
     const result = await execute(sql, this.bindings);
     return result.affectedRows;
+  }
+
+  async forceDelete(): Promise<number> {
+     let sql = `DELETE FROM ${this.table}`;
+     if (this.whereClauses.length) sql += ' WHERE ' + this.whereClauses.join(' AND ');
+     const result = await execute(sql, this.bindings);
+     return result.affectedRows;
+  }
+
+  withTrashedResults(): this {
+    this.withTrashed = true;
+    return this;
   }
 
   async raw(sql: string, bindings: any[] = []): Promise<any> { return query(sql, bindings); }
@@ -426,6 +508,14 @@ export abstract class Model {
   protected static tableName: string;
   protected static primaryKey: string = 'id';
   protected static timestamps: boolean = true;
+  protected static softDeletes: boolean = false;
+  protected static deletedAtColumn: string = 'deleted_at';
+
+  // Observers
+  protected static observers: ModelObserver[] = [];
+  
+  // Casting
+  protected casts: Record<string, CastType> = {};
   
   // Instance properties
   [key: string]: any;
@@ -434,7 +524,90 @@ export abstract class Model {
   public relations: Record<string, any> = {};
 
   constructor(data?: any) {
-    if (data) Object.assign(this, data);
+    if (data) this.fill(data);
+  }
+
+  // ============================
+  // Observer Registration
+  // ============================
+  static observe(observer: ModelObserver) {
+    this.observers.push(observer);
+  }
+
+  protected async fireEvent(event: keyof ModelObserver): Promise<void> {
+    for (const observer of (this.constructor as typeof Model).observers) {
+       const handler = observer[event];
+       if (typeof handler === 'function') {
+         await (handler as Function)(this);
+       }
+    }
+  }
+
+  // ============================
+  // Attribute Casting & Accessors
+  // ============================
+  
+  // Helper to cast value based on type
+  private castAttribute(key: string, value: any): any {
+    if (value === null || value === undefined) return value;
+    
+    const type = this.casts[key];
+    if (!type) return value;
+
+    switch (type) {
+      case 'int':
+      case 'integer':
+        return parseInt(value);
+      case 'real':
+      case 'float':
+      case 'double':
+        return parseFloat(value);
+      case 'string':
+        return String(value);
+      case 'bool':
+      case 'boolean':
+        return value === 1 || value === '1' || value === true || value === 'true';
+      case 'json':
+      case 'array':
+      case 'collection':
+        return typeof value === 'string' ? JSON.parse(value) : value;
+      case 'date':
+      case 'datetime':
+        return new Date(value);
+      case 'timestamp':
+        return new Date(value).getTime();
+      default:
+        return value;
+    }
+  }
+
+  // Prepares data for database storage
+  private prepareAttributeForStorage(key: string, value: any): any {
+     const type = this.casts[key];
+     if (!type) return value;
+
+     switch(type) {
+         case 'json':
+         case 'array':
+         case 'collection':
+             return typeof value === 'object' ? JSON.stringify(value) : value;
+         case 'bool':
+         case 'boolean':
+             return value ? 1 : 0;
+         case 'date':
+         case 'datetime':
+             return value instanceof Date ? value.toISOString().slice(0, 19).replace('T', ' ') : value;
+         default: 
+             return value;
+     }
+  }
+
+  // Override fill to handle casting
+  fill(data: any): this {
+    for (const key in data) {
+       this[key] = this.castAttribute(key, data[key]);
+    }
+    return this;
   }
 
 
@@ -519,8 +692,8 @@ export abstract class Model {
     
     const builder = relatedClass.query<T>();
     
+    // subquery for whereIn
     const sql = `id IN (SELECT ${rk} FROM ${table} WHERE ${fk} = ?)`;
-    // We pass the binding
     const qb = builder.whereRaw(sql, [this['id']]);
     
     (qb as any)._relationInfo = {
@@ -533,22 +706,129 @@ export abstract class Model {
     
     return qb;
   }
-  static table<T extends Model>(this: new () => T): QueryBuilder<T> {
+
+  /**
+   * Define morphTo relationship
+   */
+  protected morphTo(name?: string, type?: string, id?: string, ownerKey: string = 'id'): QueryBuilder<any> {
+      const n = name || 'morphable'; // fallback name
+      const typeCol = type || `${n}_type`;
+      const idCol = id || `${n}_id`;
+      
+      const qb = new QueryBuilderImpl<any>('__dummy__'); 
+
+      (qb as any)._relationInfo = {
+        type: 'morphTo',
+        morphName: n,
+        morphType: typeCol,
+        morphId: idCol,
+        ownerKey
+      };
+      
+      return qb;
+  }
+
+  /**
+   * Define morphOne relationship
+   */
+  protected morphOne<T extends Model>(relatedClass: { new (): T } & typeof Model, name: string, type?: string, id?: string, localKey: string = 'id'): QueryBuilder<T> {
+      const typeCol = type || `${name}_type`;
+      const idCol = id || `${name}_id`;
+      
+      const myClass = this.constructor.name;
+      
+      const qb = relatedClass.query<T>()
+          .where(idCol, '=', this[localKey])
+          .where(typeCol, '=', myClass)
+          .limit(1);
+
+      (qb as any)._relationInfo = {
+        type: 'morphOne',
+        relatedClass: relatedClass,
+        morphName: name,
+        morphType: typeCol,
+        morphId: idCol,
+        localKey
+      };
+      
+      return qb;
+  }
+
+  /**
+   * Define morphMany relationship
+   */
+  protected morphMany<T extends Model>(relatedClass: { new (): T } & typeof Model, name: string, type?: string, id?: string, localKey: string = 'id'): QueryBuilder<T> {
+      const typeCol = type || `${name}_type`;
+      const idCol = id || `${name}_id`;
+      const myClass = this.constructor.name;
+      
+      const qb = relatedClass.query<T>()
+          .where(idCol, '=', this[localKey])
+          .where(typeCol, '=', myClass);
+
+      (qb as any)._relationInfo = {
+        type: 'morphMany',
+        relatedClass: relatedClass,
+        morphName: name,
+        morphType: typeCol,
+        morphId: idCol,
+        localKey
+      };
+      
+      return qb;
+  }
+
+  /**
+   * Define hasManyThrough relationship
+   */
+  protected hasManyThrough<T extends Model>(
+      relatedClass: { new (): T } & typeof Model, 
+      throughClass: { new (): any } & typeof Model,
+      firstKey?: string, // Foreign key on through table
+      secondKey?: string, // Foreign key on related table
+      localKey: string = 'id', // Local key on this model
+      secondLocalKey: string = 'id' // Local key on through model
+  ): QueryBuilder<T> {
+      const fk1 = firstKey || `${this.constructor.name.toLowerCase()}_id`;
+      const fk2 = secondKey || `${throughClass.name.toLowerCase()}_id`;
+      
+      const relatedTable = (relatedClass as any).tableName;
+      const throughTable = (throughClass as any).tableName;
+      
+      const qb = relatedClass.query<T>();
+      
+      // Join
+      qb.join(throughTable, `${throughTable}.${secondLocalKey}`, '=', `${relatedTable}.${fk2}`)
+        .where(`${throughTable}.${fk1}`, '=', this[localKey])
+        .select(`${relatedTable}.*`);
+        
+      (qb as any)._relationInfo = {
+          type: 'hasManyThrough',
+          relatedClass,
+          throughClass,
+          firstKey: fk1,
+          secondKey: fk2,
+          localKey,
+      };
+
+      return qb;
+  }
+  static table<T extends Model>(this: any): QueryBuilder<T> {
     return new QueryBuilderImpl<T>((this as any).tableName, this);
   }
 
   // Find by ID - returns Instance
-  static async find<T extends Model>(this: { new (): T } & typeof Model, id: number | string): Promise<T | null> {
-    return this.table<T>().where(this.primaryKey, '=', id).first();
+  static async find<T extends Model>(this: any, id: number | string): Promise<T | null> {
+    return this.table().where(this.primaryKey, '=', id).first();
   }
 
   // Chainable query builder
-  static query<T extends Model>(this: { new (): T } & typeof Model): QueryBuilder<T> {
+  static query<T extends Model>(this: any): QueryBuilder<T> {
     return new QueryBuilderImpl<T>(this.tableName, this);
   }
 
-  static async all<T extends Model>(this: { new (): T } & typeof Model): Promise<T[]> {
-    return this.query<T>().get();
+  static async all<T extends Model>(this: any): Promise<T[]> {
+    return this.query().get();
   }
 
   // Init relation storage
@@ -566,24 +846,98 @@ export abstract class Model {
   }
   
   // Start Eager Loading
-  static with<T extends Model>(this: { new (): T } & typeof Model, ...relations: string[]): QueryBuilder<T> {
-    return this.query<T>().with(...relations);
+  static with<T extends Model>(this: any, ...relations: string[]): QueryBuilder<T> {
+    return this.query().with(...relations);
   }
 
-  // Helper to fill data (chainable)
-  fill(data: any): this {
-    Object.assign(this, data);
+  // Override save/update/insert logic with hooks
+  async save(): Promise<this> {
+    const isNew = !this[(this.constructor as typeof Model).primaryKey];
+    
+    await this.fireEvent('saving');
+    
+    if (isNew) {
+       await this.fireEvent('creating');
+       // Prepare data
+       const data: any = {};
+       for (const key of Object.keys(this)) {
+           if (key === 'relations' || key === 'casts' || typeof this[key] === 'function') continue;
+           data[key] = this.prepareAttributeForStorage(key, this[key]);
+       }
+       
+       // Add timestamps if enabled
+       const ModelClass = this.constructor as typeof Model;
+       if (ModelClass.timestamps) {
+         const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+         data.created_at = now;
+         data.updated_at = now;
+       }
+       
+       // Use direct insert instead of create() to avoid recursion
+       const created = await ModelClass.query().insert(data);
+       Object.assign(this, created); // Sync ID and timestamps
+       
+       await this.fireEvent('created');
+    } else {
+       await this.fireEvent('updating');
+       
+       const data: any = {};
+       // We should only update what's changed, but for now update explicit props
+       for (const key of Object.keys(this)) {
+          if (key === 'relations' || key === 'casts' || typeof this[key] === 'function') continue;
+           data[key] = this.prepareAttributeForStorage(key, this[key]);
+       }
+       
+       // Exclude ID from update
+       const pk = (this.constructor as typeof Model).primaryKey;
+       delete data[pk];
+
+       await (this.constructor as typeof Model).query()
+          .where(pk, '=', this[pk])
+          .update(data);
+          
+       await this.fireEvent('updated');
+    }
+    
+    await this.fireEvent('saved');
     return this;
+  }
+
+  // Delete with hooks
+  async delete(): Promise<boolean> {
+     await this.fireEvent('deleting');
+     
+     const pk = (this.constructor as typeof Model).primaryKey;
+     await (this.constructor as typeof Model).query().where(pk, '=', this[pk]).delete();
+     
+     await this.fireEvent('deleted');
+     return true;
+  }
+  
+  // Restore (Soft Deletes)
+  async restore(): Promise<boolean> {
+      if (!(this.constructor as typeof Model).softDeletes) return false;
+      
+      await this.fireEvent('restoring');
+      
+      const pk = (this.constructor as typeof Model).primaryKey;
+      const deletedAtCol = (this.constructor as typeof Model).deletedAtColumn;
+      
+      await (this.constructor as typeof Model).query()
+              .where(pk, '=', this[pk])
+              .update({ [deletedAtCol]: null } as any);
+      
+      this[deletedAtCol] = null;
+      await this.fireEvent('restored');
+      return true;
   }
 
   // Create - returns Instance
   static async create<T extends Model>(this: { new (): T } & typeof Model, data: Partial<T>): Promise<T> {
-    if (this.timestamps) {
-      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-      (data as any).created_at = now;
-      (data as any).updated_at = now;
-    }
-    return this.query<T>().insert(data);
+    const instance = new (this as any)();
+    instance.fill(data);
+    await instance.save();
+    return instance;
   }
 
   static async updateById<T>(id: number | string, data: Partial<T>): Promise<number> {

@@ -9,6 +9,7 @@ import { RouteListCommand } from './commands/RouteListCommand';
 import { TestCommand } from './commands/TestCommand';
 import { ScheduleRunCommand } from './commands/ScheduleRunCommand';
 import { OptimizeCommand } from './commands/OptimizeCommand';
+import { DashboardCommand } from './commands/Dashboard';
 
 export class Console {
   private commands: Map<string, Command> = new Map();
@@ -17,6 +18,7 @@ export class Console {
       // Core
       this.register(new MigrateCommand());
       this.register(new QueueWorkCommand());
+      this.register(new DashboardCommand());
       this.register(new RouteListCommand());
       this.register(new TestCommand());
       this.register(new ScheduleRunCommand());

@@ -1,0 +1,34 @@
+name: CanxJS CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    name: Test & Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install
+
+      - name: Lint Code
+        run: bun run lint
+        continue-on-error: true
+
+      - name: Run Tests
+        run: bun test --timeout 30000
+
+      - name: Build Project
+        run: bun run build

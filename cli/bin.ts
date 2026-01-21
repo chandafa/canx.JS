@@ -596,6 +596,194 @@ const commands: Record<string, { description: string; handler: (args: string[]) 
     },
   },
 
+  'version:list': {
+    description: 'List available CanxJS versions from NPM',
+    handler: async (args) => {
+      console.log('\n📦 Fetching available versions from NPM...\n');
+      try {
+        const res = await fetch('https://registry.npmjs.org/canxjs');
+        if (!res.ok) throw new Error('Failed to fetch from NPM registry');
+        
+        const data = await res.json() as { versions: Record<string, any>; 'dist-tags': Record<string, string> };
+        const versions = Object.keys(data.versions).reverse();
+        const latest = data['dist-tags']?.latest || versions[0];
+        
+        // Get current version
+        let currentVersion = 'unknown';
+        try {
+          const pkg = JSON.parse(await Bun.file('package.json').text());
+          currentVersion = pkg.dependencies?.canxjs?.replace(/[\^~]/, '') || 'not installed';
+        } catch {}
+        
+        console.log(`  Current: ${currentVersion}`);
+        console.log(`  Latest:  ${latest}\n`);
+        console.log('  Available versions (newest first):');
+        
+        const limit = args.includes('--all') ? versions.length : 10;
+        for (let i = 0; i < Math.min(limit, versions.length); i++) {
+          const v = versions[i];
+          const marker = v === currentVersion ? ' ← installed' : (v === latest ? ' ★ latest' : '');
+          console.log(`    ${v}${marker}`);
+        }
+        
+        if (versions.length > limit) {
+          console.log(`\n  ... and ${versions.length - limit} more (use --all to see all)`);
+        }
+        console.log('');
+      } catch (e: any) {
+        console.error('❌ Failed to fetch versions:', e.message);
+      }
+    },
+  },
+
+  upgrade: {
+    description: 'Upgrade CanxJS to latest or specified version',
+    handler: async (args) => {
+      const targetVersion = args[0] || 'latest';
+      console.log('\n🚀 CanxJS Upgrade\n');
+      
+      try {
+        // Get current version
+        let currentVersion = 'unknown';
+        try {
+          const pkg = JSON.parse(await Bun.file('package.json').text());
+          currentVersion = pkg.dependencies?.canxjs?.replace(/[\^~]/, '') || 'not installed';
+        } catch {}
+        
+        // Get target version from NPM
+        let resolvedVersion = targetVersion;
+        if (targetVersion === 'latest') {
+          const res = await fetch('https://registry.npmjs.org/canxjs/latest');
+          if (!res.ok) throw new Error('Failed to fetch latest version');
+          const data = await res.json() as { version: string };
+          resolvedVersion = data.version;
+        } else {
+          // Validate version exists
+          const res = await fetch(`https://registry.npmjs.org/canxjs/${targetVersion}`);
+          if (!res.ok) throw new Error(`Version ${targetVersion} not found on NPM`);
+          const data = await res.json() as { version: string };
+          resolvedVersion = data.version;
+        }
+        
+        console.log(`  Current version: ${currentVersion}`);
+        console.log(`  Target version:  ${resolvedVersion}\n`);
+        
+        if (currentVersion === resolvedVersion) {
+          console.log('✅ Already on the target version!\n');
+          return;
+        }
+        
+        // Check if we're downgrading (only for valid semantic versions)
+        // Skip downgrade check for workspace:, unknown, not installed, or non-semver formats
+        const isValidSemver = (v: string) => /^\d+\.\d+\.\d+/.test(v);
+        const isDowngrade = isValidSemver(currentVersion) && 
+                           isValidSemver(resolvedVersion) &&
+                           resolvedVersion.localeCompare(currentVersion, undefined, { numeric: true }) < 0;
+        
+        if (isDowngrade && !args.includes('--force')) {
+          console.log('⚠️  This would downgrade your version. Use --force to confirm.\n');
+          console.log('   Or use: canx downgrade ' + resolvedVersion + '\n');
+          return;
+        }
+        
+        // Perform upgrade
+        console.log('📥 Installing canxjs@' + resolvedVersion + '...\n');
+        const result = spawnSync('bun', ['add', `canxjs@${resolvedVersion}`], { 
+          stdio: 'inherit',
+          cwd: process.cwd()
+        });
+        
+        if (result.status === 0) {
+          console.log('\n✅ Successfully upgraded to canxjs@' + resolvedVersion + '!\n');
+          console.log('📝 Post-upgrade recommendations:');
+          console.log('   1. Clear any caches: rm -rf node_modules/.cache');
+          console.log('   2. Review CHANGELOG for breaking changes');
+          console.log('   3. Run your test suite to verify compatibility\n');
+        } else {
+          console.error('\n❌ Upgrade failed. Please check the error above.\n');
+        }
+      } catch (e: any) {
+        console.error('❌ Upgrade failed:', e.message);
+      }
+    },
+  },
+
+  downgrade: {
+    description: 'Downgrade CanxJS to a specific version',
+    handler: async (args) => {
+      const targetVersion = args[0];
+      console.log('\n⬇️  CanxJS Downgrade\n');
+      
+      if (!targetVersion) {
+        console.error('Usage: canx downgrade <version>');
+        console.log('\nExample: canx downgrade 1.0.0');
+        console.log('\nUse "canx version:list" to see available versions.\n');
+        process.exit(1);
+      }
+      
+      try {
+        // Get current version
+        let currentVersion = 'unknown';
+        try {
+          const pkg = JSON.parse(await Bun.file('package.json').text());
+          currentVersion = pkg.dependencies?.canxjs?.replace(/[\^~]/, '') || 'not installed';
+        } catch {}
+        
+        // Validate version exists on NPM
+        const res = await fetch(`https://registry.npmjs.org/canxjs/${targetVersion}`);
+        if (!res.ok) {
+          console.error(`❌ Version ${targetVersion} not found on NPM.`);
+          console.log('\nUse "canx version:list" to see available versions.\n');
+          process.exit(1);
+        }
+        
+        console.log(`  Current version: ${currentVersion}`);
+        console.log(`  Target version:  ${targetVersion}\n`);
+        
+        if (currentVersion === targetVersion) {
+          console.log('✅ Already on the target version!\n');
+          return;
+        }
+        
+        // Warning for downgrade
+        console.log('⚠️  WARNING: Downgrading may cause issues if your code uses');
+        console.log('   features that were added in newer versions.\n');
+        
+        if (!args.includes('--force')) {
+          console.log('   Add --force to proceed with the downgrade.\n');
+          return;
+        }
+        
+        // Perform downgrade
+        console.log('📥 Installing canxjs@' + targetVersion + '...\n');
+        const result = spawnSync('bun', ['add', `canxjs@${targetVersion}`], { 
+          stdio: 'inherit',
+          cwd: process.cwd()
+        });
+        
+        if (result.status === 0) {
+          console.log('\n✅ Successfully downgraded to canxjs@' + targetVersion + '!\n');
+          console.log('📝 Post-downgrade recommendations:');
+          console.log('   1. Review your code for any incompatible features');
+          console.log('   2. Run your test suite to verify compatibility');
+          console.log('   3. Check the CHANGELOG for breaking changes\n');
+        } else {
+          console.error('\n❌ Downgrade failed. Please check the error above.\n');
+        }
+      } catch (e: any) {
+        console.error('❌ Downgrade failed:', e.message);
+      }
+    },
+  },
+
+  'self-update': {
+    description: 'Update CanxJS CLI to the latest version (alias for upgrade)',
+    handler: async (args) => {
+      // Delegate to upgrade command
+      await commands.upgrade.handler(['latest', ...args]);
+    },
+  },
+
   help: {
     description: 'Show help',
     handler: () => showHelp(),
@@ -623,6 +811,7 @@ Commands:`);
     'Development': ['serve', 'build', 'routes', 'generate:client'],
     'Generators': ['make:controller', 'make:model', 'make:middleware', 'make:migration', 'make:seeder', 'make:service', 'make:notification'],
     'Database': ['db:migrate', 'db:rollback', 'db:seed', 'db:fresh'],
+    'Version Management': ['upgrade', 'downgrade', 'version:list', 'self-update'],
     'Other': ['version', 'help'],
   };
 
@@ -641,6 +830,10 @@ Examples:
   canx make:controller Post     # Generate PostController
   canx db:migrate               # Run pending migrations
   canx db:seed                  # Run all seeders
+  canx upgrade                  # Upgrade to latest version
+  canx upgrade 2.0.0            # Upgrade to specific version
+  canx downgrade 1.5.0 --force  # Downgrade to specific version
+  canx version:list             # List available versions
 `);
 }
 

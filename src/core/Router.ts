@@ -12,6 +12,7 @@ import type {
   RouterInstance,
 } from '../types';
 import { getControllerMeta } from '../mvc/Controller';
+import { container } from '../container/Container';
 
 interface RadixNode {
   path: string;
@@ -181,22 +182,42 @@ export class Router implements RouterInstance {
   all(path: string, ...h: (MiddlewareHandler | RouteHandler | [any, string])[]): RouterInstance { this.addRoute('ALL', path, resolveHandler(h.pop() as RouteHandler | [any, string]), h as MiddlewareHandler[]); return this; }
 
   controller(path: string, controllerClass: any): RouterInstance {
+    // ... existing implementation logic delegated to registerController if possible, 
+    // or keep separate. For now, let's keep it and add registerController.
+    // Actually, registerController is what we need for the decorator based registration (no path arg needed as it is in decorator).
     const meta = getControllerMeta(controllerClass.prototype);
+    return this.registerController(controllerClass, path);
+  }
+
+  /**
+   * Register a controller using its decorator metadata
+   */
+  registerController(controllerOrClass: any, basePath: string = ''): RouterInstance {
+    let instance: any;
+    let prototype: any;
+
+    if (typeof controllerOrClass === 'function') {
+        instance = container.get(controllerOrClass) || new controllerOrClass();
+        prototype = controllerOrClass.prototype;
+    } else {
+        instance = controllerOrClass;
+        prototype = Object.getPrototypeOf(instance);
+    }
+
+    const meta = getControllerMeta(prototype);
+    if (!meta) return this; 
+
+    // Controller prefix from @Controller('prefix')
     const classPrefix = meta.prefix || '';
 
     meta.routes.forEach((route, key) => {
-      // route.path might be empty or start with /
       const routePath = route.path;
-      // Combine: router_prefix + user_path + class_prefix + method_path
-      // But user_path + class_prefix should be joined carefully.
-      // logic: normalized( path + classPrefix + routePath )
-      const fullPath = (path === '/' ? '' : path) + (classPrefix.startsWith('/') ? classPrefix : '/' + classPrefix) + (routePath.startsWith('/') ? routePath : '/' + routePath);
-      
-      // We assume the dispatcher can handle [Class, method] tuple if that's what we send.
-      // Based on starter kit usage, we form the tuple:
-      // Create a singleton instance for this route group (matching Application.ts behavior)
-      const instance = new controllerClass();
-      
+      // Normalization: basePath + classPrefix + routePath
+      const fullPath = [basePath, classPrefix, routePath]
+        .map(p => p.startsWith('/') ? p : '/' + p)
+        .join('')
+        .replace(/\/\//g, '/'); // cleanup double slashes
+
       const handler = async (req: any, res: any) => {
         if (typeof instance.setContext === 'function') {
           instance.setContext(req, res);
@@ -204,10 +225,12 @@ export class Router implements RouterInstance {
         return instance[key](req, res);
       };
 
-      this.addRoute(route.method, fullPath.replace(/\/\//g, '/'), handler, [...meta.middlewares, ...route.middlewares]);
+      this.addRoute(route.method, fullPath === '/' ? '/' : fullPath.replace(/\/$/, ''), handler, [...meta.middlewares, ...route.middlewares]);
     });
+    
     return this;
   }
+
 
   group(prefix: string, cb: (r: RouterInstance) => void): RouterInstance {
     const prev = this.prefix, prevMw = [...this.currentMiddlewares];

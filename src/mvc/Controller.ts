@@ -3,6 +3,7 @@
  */
 
 import type { CanxRequest, CanxResponse, HttpMethod, MiddlewareHandler, ControllerMeta } from '../types';
+import { getParamMetadata, resolveParams } from '../core/Decorators';
 
 // Controller metadata storage
 const controllerMeta = new WeakMap<object, ControllerMeta>();
@@ -53,6 +54,32 @@ export const Post = createMethodDecorator('POST');
 export const Put = createMethodDecorator('PUT');
 export const Patch = createMethodDecorator('PATCH');
 export const Delete = createMethodDecorator('DELETE');
+export const Options = createMethodDecorator('OPTIONS');
+export const Head = createMethodDecorator('HEAD');
+
+/**
+ * Wrap a controller method to automatically resolve parameter decorators
+ * This is called by the Router when registering controller routes
+ */
+export function wrapWithParamResolution(
+  controller: any,
+  methodName: string,
+  originalMethod: Function
+): (req: CanxRequest, res: CanxResponse) => Promise<Response> {
+  return async (req: CanxRequest, res: CanxResponse) => {
+    // Check if method uses parameter decorators
+    const paramMetadata = getParamMetadata(controller, methodName);
+    
+    if (paramMetadata.length > 0) {
+      // Resolve all parameters using decorators
+      const args = await resolveParams(controller, methodName, req, res);
+      return originalMethod.apply(controller, args);
+    } else {
+      // Fall back to traditional (req, res) pattern
+      return originalMethod.call(controller, req, res);
+    }
+  };
+}
 
 /**
  * Validate decorator - validates request body against a schema

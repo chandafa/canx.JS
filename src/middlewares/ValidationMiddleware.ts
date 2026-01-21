@@ -1,6 +1,6 @@
 import type { MiddlewareHandler, CanxRequest } from '../types';
 import { Schema } from '../schema/Schema';
-import { ValidationError } from '../utils/ErrorHandler';
+import { ValidationException } from '../core/exceptions/ValidationException';
 
 export function validateSchema(schema: Schema<any>, target: 'body' | 'query' | 'params' = 'body'): MiddlewareHandler {
   return async (req: CanxRequest, res, next) => {
@@ -20,7 +20,7 @@ export function validateSchema(schema: Schema<any>, target: 'body' | 'query' | '
       (req as any).validatedData = validated;
       return next();
     } catch (error) {
-      if (error instanceof ValidationError) {
+      if (error instanceof ValidationException) {
         return res.status(422).json({
           error: {
             code: 'VALIDATION_ERROR',

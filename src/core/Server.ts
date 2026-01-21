@@ -153,8 +153,11 @@ export function createCanxResponse(): CanxResponse {
   let statusCode = 200;
   const responseHeaders = new Headers();
   const responseCookies: string[] = [];
+  let headersSentFlag = false;
 
   const response: CanxResponse = {
+    headersSent: false,
+
     status(code: number): CanxResponse {
       statusCode = code;
       return response;
