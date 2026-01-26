@@ -1,7 +1,7 @@
-import type { Canx } from '../Application';
+import { Canx as Application } from '../Application';
 
 export class TestClient {
-  constructor(private app: Canx) {}
+  constructor(private app: Application) {}
 
   get(path: string, headers: Record<string, string> = {}) {
     return new TestRequest(this.app, 'GET', path, headers);
@@ -24,7 +24,7 @@ class TestRequest {
   private _headers: Record<string, string>;
 
   constructor(
-    private app: Canx,
+    private app: Application,
     private method: string,
     private path: string,
     headers: Record<string, string>,

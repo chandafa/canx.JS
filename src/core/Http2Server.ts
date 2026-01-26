@@ -349,6 +349,7 @@ export class Http2Server {
       timestamp: Date.now(),
       id: crypto.randomUUID(),
       user: undefined,
+      session: undefined as any,
     } as CanxRequest;
   }
 

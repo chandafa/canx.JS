@@ -1,6 +1,6 @@
 {
   "name": "canxjs",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Ultra-fast async-first MVC backend framework for Bun runtime",
   "type": "module",
   "main": "./dist/index.js",
@@ -48,7 +48,8 @@
   ],
   "scripts": {
     "build": "tsc",
-    "dev": "bun --watch src/index.ts",
+    "start": "bun run src/main.ts",
+    "dev": "bun --watch src/main.ts",
     "test": "bun test",
     "test:integration": "bun test ./tests/integration",
     "benchmark": "bun run ./benchmarks/run.ts",
@@ -84,7 +85,6 @@
     "typescript": ">=5.0.0"
   },
   "dependencies": {
-    "canxjs": "workspace:*",
     "mysql2": "^3.9.0",
     "picocolors": "^1.0.0"
   },

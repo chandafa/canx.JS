@@ -8,65 +8,136 @@ import { ViewNotFoundException } from '../core/exceptions/ViewNotFoundException'
 // Fragment symbol for JSX
 export const Fragment = Symbol.for('canxjs.fragment');
 
+// Void elements that should not have closing tags
+const VOID_ELEMENTS = new Set([
+  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'
+]);
+
 // JSX Factory functions for Bun's native JSX support
-// Note: In react-jsx mode, children are passed in props.children, not as rest params
+// Safe HTML String wrapper
+export class SafeString extends String {
+  toString(): string {
+    return super.toString();
+  }
+}
+
+// Helper to mark string as safe (e.g. from other components)
+export function raw(str: string): SafeString {
+  return new SafeString(str);
+}
+
+// JSX Factory functions
 export const jsx = (
-  type: string | Function | symbol,
+  tag: string | Function | symbol,
   props: Record<string, any> | null
-): string => {
-  // Handle Fragment
-  if (type === Fragment || (typeof type === 'symbol' && type.description === 'canxjs.fragment')) {
-    const children = props?.children;
-    if (Array.isArray(children)) {
-      return children.flat().map(c => (c === null || c === undefined || c === false) ? '' : String(c)).join('');
+): SafeString => {
+  // 1. Handle Fragment
+  if (tag === Fragment || (typeof tag === 'symbol' && tag.description === 'canxjs.fragment')) {
+    return new SafeString(processChildren(props?.children));
+  }
+
+  // 2. Handle Components (Functions)
+  if (typeof tag === 'function') {
+    const res = tag(props || {});
+    // Ensure result is SafeString
+    return res instanceof SafeString ? res : new SafeString(String(res));
+  }
+
+  // 3. Handle Native Elements
+  const tagName = tag as string;
+  let attrs = '';
+
+  if (props) {
+    // ... (attribute logic remains same, it already escapes)
+    const attrList: string[] = [];
+    
+    for (const key in props) {
+      if (key === 'children') continue;
+
+      if (!/^[a-zA-Z0-9-_\:]+$/.test(key)) continue;
+
+      const value = props[key];
+
+      if (key === 'className') {
+        if (value) attrList.push(`class="${escapeHtml(String(value))}"`);
+        continue;
+      }
+      
+      if (key === 'dangerouslySetInnerHTML' && value?.__html) {
+          // Special React-like handling, we don't render it as attr, we handle it in children? 
+          // Actually native elements with dangerouslySetInnerHTML usually mean "content is this".
+          // We will handle it later or ignore? 
+          // Let's implement it for compatibility.
+          // It overrides children.
+          continue; 
+      }
+
+      if (key === 'style' && typeof value === 'object') {
+        attrList.push(`style="${Object.entries(value).map(([k, v]) => `${k}:${v}`).join(';')}"`);
+        continue;
+      }
+
+      if (typeof value === 'boolean') {
+        if (value) attrList.push(key);
+        continue;
+      }
+
+      if (value === null || value === undefined) continue;
+      if (key.startsWith('on') && typeof value === 'function') continue;
+      if (key.startsWith('on') && typeof value === 'string') {
+        attrList.push(`${key}="${escapeHtml(value)}"`);
+        continue;
+      }
+
+      attrList.push(`${key}="${escapeHtml(String(value))}"`);
     }
-    return children ? String(children) : '';
-  }
-  
-  // Handle functional components
-  if (typeof type === 'function') {
-    return type(props || {});
-  }
-
-  // At this point type should be a string (HTML tag)
-  const tagName = type as string;
-  const children = props?.children;
-  const attrs = props
-    ? Object.entries(props)
-        .filter(([key]) => key !== 'children')
-        .map(([key, val]) => {
-          if (key === 'className') key = 'class';
-          if (typeof val === 'boolean') return val ? key : '';
-          if (val === null || val === undefined) return '';
-          return `${key}="${escapeHtml(String(val))}"`;
-        })
-        .filter(Boolean)
-        .join(' ')
-    : '';
-
-  // Process children
-  let content = '';
-  if (children !== null && children !== undefined) {
-    if (Array.isArray(children)) {
-      content = children.flat().map(c => (c === null || c === undefined || c === false) ? '' : String(c)).join('');
-    } else if (children !== false) {
-      content = String(children);
+    
+    if (attrList.length > 0) {
+      attrs = ' ' + attrList.join(' ');
     }
   }
 
-  // Self-closing tags
-  const selfClosing = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr'];
-  if (selfClosing.includes(tagName)) {
-    return `<${tagName}${attrs ? ' ' + attrs : ''} />`;
+  // Handle dangerouslySetInnerHTML
+  let childrenHtml = '';
+  if (props?.dangerouslySetInnerHTML?.__html) {
+      childrenHtml = props.dangerouslySetInnerHTML.__html;
+  } else {
+      childrenHtml = processChildren(props?.children);
   }
 
-  return `<${tagName}${attrs ? ' ' + attrs : ''}>${content}</${tagName}>`;
+  if (VOID_ELEMENTS.has(tagName)) {
+    return new SafeString(`<${tagName}${attrs} />`);
+  }
+
+  return new SafeString(`<${tagName}${attrs}>${childrenHtml}</${tagName}>`);
 };
 
 export const jsxs = jsx;
 
+function processChildren(children: any): string {
+  if (children === null || children === undefined || children === false || children === true) return '';
+  
+  if (Array.isArray(children)) {
+    return children.map(processChildren).join('');
+  }
+  
+  // Critical Security Check
+  if (children instanceof SafeString) {
+      return children.toString();
+  }
+  
+  // It's a plain string/number -> Escape it
+  return escapeHtml(String(children));
+}
+
 function escapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  if (typeof str !== 'string') return str;
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // HTML layout helper

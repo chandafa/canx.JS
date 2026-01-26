@@ -166,12 +166,19 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
   select(...cols: any[]): this { this.selectCols = cols.length ? cols : ['*']; return this; }
   
   where(col: any, op: string, val: any): this {
+    // Security: Validate column name
+    if (typeof col === 'string' && !/^[a-zA-Z0-9_\.]+$/.test(col)) {
+        throw new Error(`Invalid column name: ${col}`);
+    }
     this.whereClauses.push(`${String(col)} ${op} ?`);
     this.bindings.push(val);
     return this;
   }
   
   whereIn(col: any, vals: any[]): this {
+    if (typeof col === 'string' && !/^[a-zA-Z0-9_\.]+$/.test(col)) {
+        throw new Error(`Invalid column name: ${col}`);
+    }
     if (vals.length === 0) {
        this.whereClauses.push('1 = 0'); // False condition if empty
        return this;
@@ -181,10 +188,17 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
     return this;
   }
 
-  whereNull(col: any): this { this.whereClauses.push(`${String(col)} IS NULL`); return this; }
-  whereNotNull(col: any): this { this.whereClauses.push(`${String(col)} IS NOT NULL`); return this; }
+  whereNull(col: any): this { 
+    if (typeof col === 'string' && !/^[a-zA-Z0-9_\.]+$/.test(col)) throw new Error(`Invalid column name: ${col}`); 
+    this.whereClauses.push(`${String(col)} IS NULL`); return this; 
+  }
+  whereNotNull(col: any): this { 
+    if (typeof col === 'string' && !/^[a-zA-Z0-9_\.]+$/.test(col)) throw new Error(`Invalid column name: ${col}`);
+    this.whereClauses.push(`${String(col)} IS NOT NULL`); return this; 
+  }
 
   orWhere(col: any, op: string, val: any): this {
+    if (typeof col === 'string' && !/^[a-zA-Z0-9_\.]+$/.test(col)) throw new Error(`Invalid column name: ${col}`);
     if (this.whereClauses.length) {
       const last = this.whereClauses.pop();
       this.whereClauses.push(`(${last} OR ${String(col)} ${op} ?)`);
@@ -196,6 +210,7 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
   }
 
   orderBy(col: any, dir: 'asc' | 'desc' = 'asc'): this {
+    if (typeof col === 'string' && !/^[a-zA-Z0-9_\.]+$/.test(col)) throw new Error(`Invalid column name: ${col}`);
     this.orderClauses.push(`${String(col)} ${dir.toUpperCase()}`);
     return this;
   }
@@ -204,6 +219,9 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
   offset(n: number): this { this.offsetVal = n; return this; }
 
   join(table: string, first: string, op: string, second: string): this {
+    if (!/^[a-zA-Z0-9_]+$/.test(table)) throw new Error(`Invalid table name: ${table}`);
+    if (!/^[a-zA-Z0-9_\.]+$/.test(first)) throw new Error(`Invalid identifier: ${first}`);
+    if (!/^[a-zA-Z0-9_\.]+$/.test(second)) throw new Error(`Invalid identifier: ${second}`);
     this.joinClauses.push(`INNER JOIN ${table} ON ${first} ${op} ${second}`);
     return this;
   }
@@ -410,15 +428,27 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
   async avg(col: any): Promise<number> { this.selectCols = [`AVG(${String(col)}) as avg`]; const r = await query<any>(this.buildSelect(), this.bindings); return (r[0] as any)?.avg || 0; }
 
   async insert(data: Partial<T> | Partial<T>[]): Promise<T> {
-    const items = Array.isArray(data) ? data : [data];
+    let items = Array.isArray(data) ? data : [data];
+    
+    // Auto-timestamps
+    if (this.modelClass && (this.modelClass as any).timestamps) {
+        const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        const createdAt = (this.modelClass as any).createdAtColumn || 'created_at';
+        const updatedAt = (this.modelClass as any).updatedAtColumn || 'updated_at';
+        
+        items = items.map(item => ({
+            ...item,
+            [createdAt]: (item as any)[createdAt] || now,
+            [updatedAt]: (item as any)[updatedAt] || now,
+        }));
+    }
+
     const keys = Object.keys(items[0]!);
     const values = items.map(item => keys.map(k => (item as any)[k]));
     const placeholders = values.map(() => `(${keys.map(() => '?').join(',')})`).join(',');
     const sql = `INSERT INTO ${this.table} (${keys.join(',')}) VALUES ${placeholders}`;
     const result = await execute(sql, values.flat());
     
-    // If modelClass is set, return instance?
-    // insert() signature returns T.
     if (this.modelClass) {
        return new this.modelClass().fill({ ...(items[0] as any), id: result.insertId });
     }
@@ -426,11 +456,23 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
   }
 
   async update(data: Partial<T>): Promise<number> {
-    const keys = Object.keys(data);
+    const updateData = { ...data };
+
+    // Auto-timestamps
+    if (this.modelClass && (this.modelClass as any).timestamps) {
+        const updatedAt = (this.modelClass as any).updatedAtColumn || 'updated_at';
+        if (!(updateData as any)[updatedAt]) {
+            (updateData as any)[updatedAt] = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        }
+    }
+
+    const keys = Object.keys(updateData);
     const sets = keys.map(k => `${k} = ?`).join(', ');
-    const vals = keys.map(k => (data as any)[k]);
+    const vals = keys.map(k => (updateData as any)[k]);
+    
     let sql = `UPDATE ${this.table} SET ${sets}`;
     if (this.whereClauses.length) sql += ' WHERE ' + this.whereClauses.join(' AND ');
+    
     const result = await execute(sql, [...vals, ...this.bindings]);
     return result.affectedRows;
   }

@@ -4,6 +4,7 @@
 
 import type { CanxRequest, CanxResponse, HttpMethod, MiddlewareHandler, ControllerMeta } from '../types';
 import { getParamMetadata, resolveParams } from '../core/Decorators';
+import { view as renderView } from './View';
 
 // Controller metadata storage
 const controllerMeta = new WeakMap<object, ControllerMeta>();
@@ -144,6 +145,10 @@ export abstract class BaseController {
     return this.response.status(status).html(content);
   }
 
+  protected async render(viewName: string, data: Record<string, any> = {}, status: number = 200): Promise<Response> {
+    return this.html(await renderView(viewName, data), status);
+  }
+
   protected redirect(url: string, status: 301 | 302 = 302): Response {
     return this.response.redirect(url, status);
   }
@@ -199,6 +204,25 @@ export abstract class BaseController {
 
   protected forbidden(message: string = 'Forbidden'): Response {
     return this.response.status(403).json({ error: message });
+  }
+
+  protected async validate<T = any>(schema: { parse: (data: any) => T } | { safeParse: (data: any) => any }): Promise<T> {
+    const body = await this.body();
+    
+    if ('safeParse' in schema) {
+        const result = schema.safeParse(body);
+        if (!result.success) {
+            throw { status: 422, message: 'Validation failed', details: result.error };
+        }
+        return result.data;
+    } else if ('parse' in schema) {
+        return schema.parse(body);
+    }
+    throw new Error('Invalid schema provided');
+  }
+
+  protected session(): any {
+    return (this.request as any).session;
   }
 
   protected async validated<T>(): Promise<T> {

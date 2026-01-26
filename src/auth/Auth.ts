@@ -92,7 +92,15 @@ export async function verifyJWT(token: string, config: JWTConfig): Promise<JWTPa
     const [headerB64, payloadB64, signatureB64] = parts;
     const header = JSON.parse(base64UrlDecode(headerB64));
     const alg = header.alg || 'HS256';
-    const hashAlg = alg === 'HS256' ? 'SHA-256' : alg === 'HS384' ? 'SHA-384' : 'SHA-512';
+
+    // Security: Enforce allowed algorithm
+    const allowedAlg = config.algorithm || 'HS256';
+    if (alg !== allowedAlg) {
+       // Silent fail or return null for security (avoid enumeration)
+       return null;
+    }
+
+    const hashAlg = allowedAlg === 'HS256' ? 'SHA-256' : allowedAlg === 'HS384' ? 'SHA-384' : 'SHA-512';
 
     // Verify signature
     const key = await createHmacKey(config.secret, hashAlg);

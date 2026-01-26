@@ -198,6 +198,24 @@ ${dim}${error.stack?.split('\n').filter(l => !l.includes('node_modules')).slice(
     const isValidationError = error instanceof ValidationException;
     const validationErrors = isValidationError ? (error as CanxException).details : null;
 
+    // Special handling for React Hooks / JSX Runtime errors in View
+    let specialSuggestion = config.suggestion;
+    const errorStr = (error.message + (error.stack || '')).toLowerCase();
+    
+    if (errorStr.includes('invalid hook call') || errorStr.includes('usestate') || errorStr.includes('useeffect') || errorStr.includes('createcontext')) {
+      specialSuggestion = `
+        <span class="text-amber-400 font-bold">⚠️ Warning: React Hooks are not supported.</span><br>
+        CanXJS Views are <strong>server-rendered (SSR)</strong> and static. they do not run in the browser.
+        <ul class="list-disc list-inside mt-2 text-sm text-gray-400">
+          <li>Do not use <code class="text-amber-300">useState</code>, <code class="text-amber-300">useEffect</code>, or other hooks.</li>
+          <li>For interactivity, use <strong>Alpine.js</strong> (e.g., <code class="text-green-400">x-data</code>, <code class="text-green-400">@click</code>).</li>
+          <li>Or use standard Vanilla JS with <code class="text-green-400">&lt;script&gt;</code> tags.</li>
+        </ul>
+      `;
+    } else if (errorStr.includes('is not a function') && errorStr.includes(' map')) {
+       specialSuggestion += ' <br><br>Tip: You might be trying to render an object causing a crash. Check if you are passing an array correctly.';
+    }
+
     return `
 <!DOCTYPE html>
 <html lang="en" class="dark">
@@ -282,7 +300,7 @@ ${dim}${error.stack?.split('\n').filter(l => !l.includes('node_modules')).slice(
 
         <!-- Error Message -->
         <h1 class="text-3xl lg:text-4xl font-bold text-white mb-3 leading-tight">${error.message}</h1>
-        <p class="text-gray-400 text-lg">${config.suggestion}</p>
+        <div class="text-gray-400 text-lg">${specialSuggestion}</div>
         
         ${viewInfo ? `
         <!-- View Not Found Details -->

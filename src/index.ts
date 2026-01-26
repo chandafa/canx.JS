@@ -10,8 +10,7 @@
 // Core Exports
 export { Server, Server as CanxServer } from './core/Server';
 export { Router } from './core/Router';
-export { Application, createApplication } from './core/Application';
-export type { ApplicationConfig } from './core/Application';
+
 export { Canx, createApp, defineConfig } from './Application';
 export type { ServerConfig } from './types';
 export { ErrorHandler } from './core/ErrorHandler';
@@ -24,6 +23,8 @@ export { security } from './middlewares/SecurityMiddleware';
 
 export { validateSchema } from './middlewares/ValidationMiddleware';
 export { csrf, csrfField, csrfMeta } from './middlewares/CsrfMiddleware';
+export { SessionMiddleware } from './middlewares/SessionMiddleware';
+export { Session as SessionStore } from './core/Session';
 
 // ============================================
 // Schema / Validation Exports
@@ -100,7 +101,7 @@ export { jitCompiler, createJITCompiler, JITCompiler } from './features/JITCompi
 export { scheduler, createScheduler, Scheduler } from './features/Scheduler';
 
 // ============================================
-// Auth Exports
+// Auth Exports (Core Only)
 // ============================================
 export { 
   auth,
@@ -150,38 +151,8 @@ export {
 } from './auth/Guard';
 export type { AuthUser, GuardDriver, GuardConfig } from './auth/Guard';
 
-// OAuth2 Social Login
-export { OAuth, oauth, initOAuth } from './auth/OAuth';
-export type { OAuthProvider, OAuthUser, OAuthConfig } from './auth/OAuth';
-
-// Two-Factor Authentication (2FA)
-export { 
-  TwoFactor, 
-  twoFactor, 
-  generateSecret, 
-  generateTOTP, 
-  verifyTOTP, 
-  generateTwoFactorSetup, 
-  generateBackupCodes 
-} from './auth/TwoFactor';
-export type { TwoFactorSecret, TwoFactorConfig } from './auth/TwoFactor';
-
-// Refresh Token Flow
-export { 
-  RefreshTokenManager, 
-  MemoryRefreshTokenStore, 
-  createRefreshTokenManager 
-} from './auth/RefreshToken';
-export type { RefreshTokenConfig, TokenPair, RefreshTokenStore } from './auth/RefreshToken';
-
-// Email Verification & Password Reset
-export { 
-  EmailVerification, 
-  PasswordReset, 
-  createEmailVerification, 
-  createPasswordReset 
-} from './auth/EmailVerification';
-export type { EmailVerificationConfig, VerificationPayload } from './auth/EmailVerification';
+// NOTE: OAuth, TwoFactor, and advanced Auth features should now be imported from 'canxjs/auth'
+// or their specific submodules to reduce bundle size.
 
 // ============================================
 // API Versioning Exports
@@ -198,93 +169,8 @@ export {
 } from './utils/ApiVersioning';
 export type { VersioningConfig, VersionedRoute } from './utils/ApiVersioning';
 
-// ============================================
-// OpenAPI/Swagger Exports (Legacy)
-// ============================================
-export { 
-  OpenAPIBuilder, 
-  createOpenAPI, 
-  swaggerUI, 
-  openAPISpec,
-  ApiDoc,
-  getApiDoc,
-  Schemas,
-} from './generator/OpenAPIGenerator';
-export type { 
-  OpenAPIConfig, 
-  OpenAPIInfo, 
-  OpenAPIServer, 
-  OpenAPITag, 
-  RouteDoc, 
-  ParameterDoc, 
-  RequestBodyDoc, 
-  ResponseDoc, 
-  SchemaDoc,
-} from './generator/OpenAPIGenerator';
-
-// ============================================
-// Swagger Module (NestJS-compatible)
-// ============================================
-export {
-  // Module & Builder
-  SwaggerModule,
-  SwaggerDocumentBuilder,
-  createSwaggerDocument,
-  setupSwagger,
-  
-  // Class decorators
-  ApiTags,
-  ApiBearerAuth,
-  ApiKeyAuth,
-  ApiBasicAuth,
-  ApiOAuth2,
-  ApiExcludeController,
-  
-  // Method decorators
-  ApiOperation,
-  ApiResponse,
-  ApiOkResponse,
-  ApiCreatedResponse,
-  ApiAcceptedResponse,
-  ApiNoContentResponse,
-  ApiBadRequestResponse,
-  ApiUnauthorizedResponse,
-  ApiForbiddenResponse,
-  ApiNotFoundResponse,
-  ApiConflictResponse,
-  ApiUnprocessableEntityResponse,
-  ApiInternalServerErrorResponse,
-  ApiParam,
-  ApiQuery,
-  ApiHeader,
-  ApiBody,
-  ApiExcludeEndpoint,
-  ApiProduces,
-  ApiConsumes,
-  
-  // Property decorators
-  ApiProperty,
-  ApiPropertyOptional,
-  ApiHideProperty,
-  
-  // Utilities
-  buildSchemaFromType,
-  getApiMetadata,
-  getAllApiMetadata as getAllSwaggerMetadata,
-  getSchemaDefinitions as getSwaggerSchemas,
-} from './swagger';
-export type {
-  SwaggerConfig,
-  SwaggerUIConfig,
-  OpenAPIDocument,
-  SecurityScheme,
-  ApiOperationOptions,
-  ApiResponseOptions,
-  ApiParamOptions,
-  ApiQueryOptions,
-  ApiBodyOptions,
-  ApiPropertyOptions,
-} from './swagger';
+// NOTE: OpenAPI/Swagger, CQRS, Microservices, and GraphQL have been moved to their own entry points.
+// Please import them from 'canxjs/microservices', 'canxjs/cqrs', 'canxjs/graphql', etc.
 
 // ============================================
 // API Resources Exports
@@ -406,121 +292,8 @@ export type {
   ExceptionFilter 
 } from './core/AOP';
 
-// ============================================
-// Microservices Transport Exports
-// ============================================
-export { 
-  Transport,
-  InMemoryTransport,
-  TcpTransport,
-  ClientProxy,
-  MicroserviceServer,
-  MessageHandler as MsMessageHandler,
-  EventHandler as MsEventHandler,
-  getMessagePattern,
-  getEventPattern,
-  createClient,
-  createMicroservice,
-} from './microservices/Transport';
-export type { 
-  TransportOptions, 
-  MessagePattern, 
-  TransportMessage, 
-  TransportHandler, 
-  MessageContext 
-} from './microservices/Transport';
+// NOTE: Microservices, CQRS, and GraphQL have been moved to their own entry points (e.g. 'canxjs/microservices').
 
-// Additional Transports (Redis, NATS, MQTT, Kafka, gRPC)
-export {
-  RedisTransport,
-  createRedisTransport,
-  NatsTransport,
-  createNatsTransport,
-  MqttTransport,
-  createMqttTransport,
-  KafkaTransport,
-  createKafkaTransport,
-  GrpcTransport,
-  createGrpcTransport,
-  TransportType,
-} from './microservices/transports';
-export type {
-  RedisTransportOptions,
-  NatsTransportOptions,
-  MqttTransportOptions,
-  KafkaTransportOptions,
-  GrpcTransportOptions,
-} from './microservices/transports';
-
-// ============================================
-// Message Broker Exports
-// ============================================
-export { 
-  MessageBroker,
-  TopicExchange,
-  broker,
-  createBroker,
-} from './microservices/Broker';
-export type { 
-  BrokerOptions, 
-  Subscription, 
-  SubscriptionOptions, 
-  PublishOptions, 
-  BrokerMessage,
-} from './microservices/Broker';
-
-// ============================================
-// CQRS & Event Sourcing Exports
-// ============================================
-export {
-  // CQRS Module
-  CommandBus,
-  QueryBus,
-  EventBus,
-  CqrsModule,
-  CommandHandler as CqrsCommandHandler,
-  QueryHandler as CqrsQueryHandler,
-  EventHandler as CqrsEventHandler,
-  getCommandHandlerMetadata,
-  getQueryHandlerMetadata,
-  getEventHandlerMetadata,
-  createCqrsModule,
-  createCommandBus,
-  createQueryBus,
-  createEventBus,
-  
-  // Event Sourcing
-  AggregateRoot,
-  InMemoryEventStore,
-  EventSourcingRepository,
-  ProjectionManager,
-  ConcurrencyError,
-  AggregateNotFoundError,
-  createEventStore,
-  createRepository,
-  createProjectionManager,
-} from './cqrs';
-export type {
-  ICommand,
-  IQuery,
-  IEvent,
-  ICommandHandler,
-  IQueryHandler,
-  IEventHandler,
-  ISaga,
-  CommandMiddleware,
-  QueryMiddleware,
-  DomainEvent,
-  EventMetadata,
-  Snapshot,
-  EventStoreOptions,
-  StoredEvent,
-  Projection,
-} from './cqrs';
-
-// ============================================
-// Database Exports
-// ============================================
 export { Schema, migrator, defineMigration } from './database/Migration';
 export { seeder, fake, factory as seederFactory, defineSeeder } from './database/Seeder';
 
@@ -588,67 +361,8 @@ export {
 } from './container/Scope';
 export type { InjectableOptions } from './container/Scope';
 
-// ============================================
-// GraphQL Exports (Full Support)
-// ============================================
-export { 
-  // Adapter (existing)
-  GraphQLAdapter, 
-  createGraphQLAdapter,
-  
-  // Code-First
-  ObjectType,
-  InputType,
-  InterfaceType,
-  registerEnumType,
-  Field as GqlField,
-  Resolver,
-  GqlQuery,
-  GqlMutation,
-  GqlSubscription,
-  ResolveField,
-  Args as GqlArgs,
-  Root as GqlRoot,
-  GqlContext,
-  Info as GqlInfo,
-  CodeFirstSchemaBuilder,
-  createCodeFirstSchema,
-  InMemoryPubSub,
-  createPubSub,
-  
-  // Schema-First
-  SchemaFirstHandler,
-  createSchemaFirstHandler,
-  createSchemaFromSDL,
-  loadSchemaFromFile,
-  loadSchemaFromFiles,
-  loadSchemaFromDirectory,
-  mergeSchemas,
-  
-  // Federation
-  FederatedSubgraph,
-  FederationGateway,
-  createFederatedSubgraph,
-  createFederationGateway,
-  Key as GqlKey,
-  External as GqlExternal,
-  Requires as GqlRequires,
-  Provides as GqlProvides,
-  federationDirectives,
-  resolveReference,
-} from './graphql';
-export type { 
-  GraphQLOptions,
-  FieldOptions,
-  ObjectTypeOptions,
-  GraphQLType,
-  PubSubEngine,
-  SchemaFirstOptions,
-  ResolverMap,
-  ResolverFn,
-  FederationOptions,
-  GatewayOptions,
-} from './graphql';
+// NOTE: GraphQL module has been moved to 'canxjs/graphql'.
+
 
 // ============================================
 // HTTP/2 Exports
@@ -904,7 +618,7 @@ export type { TestResponse, TestRequest } from './testing/TestCase';
 // ============================================
 // Default Export
 // ============================================
-export { Application as default } from './core/Application';
+export { Canx as default } from './Application';
 // ... (previous exports)
 
 // ============================================

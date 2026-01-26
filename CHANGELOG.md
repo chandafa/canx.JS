@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.6.0] - 2026-01-27
+
+### Added
+
+- **Native JSX Engine**: Complete removal of React dependency for lighter, faster SSR.
+- **Global Helpers**: Added `route()` for named reverse routing.
+- **Controller API**: Added `render()` helper for ease of view rendering.
+- **CLI**: Enhanced Server Boot Message with vibrant colors.
+
+### Fixed
+
+- **Type Safety**: Resolved `RouterInstance` and `CanxRequest` type discrepancies.
+- **Stability**: Fixed memory leaks in Session styling and legacy import issues.
+
+## [1.5.0] - Previously Released
+
+- **Microservices**: Added initial support for microservices architecture.
+- **GraphQL**: Introduced modular GraphQL support.
+
 ## [1.4.0] - 2026-01-15
 
 ### Added

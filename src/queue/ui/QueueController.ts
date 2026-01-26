@@ -8,7 +8,7 @@ export class QueueController extends BaseController {
 
   @Get('/')
   index() {
-    return this.response.html(render(() => Dashboard()));
+    return this.response.html(render(() => Dashboard() as any));
   }
 
   @Get('/api/stats')

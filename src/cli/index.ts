@@ -10,12 +10,16 @@ import { TestCommand } from './commands/TestCommand';
 import { ScheduleRunCommand } from './commands/ScheduleRunCommand';
 import { OptimizeCommand } from './commands/OptimizeCommand';
 import { DashboardCommand } from './commands/Dashboard';
+import { HelpCommand } from './commands/HelpCommand';
+import { ListCommand } from './commands/ListCommand';
 
 export class Console {
   private commands: Map<string, Command> = new Map();
 
   constructor() {
       // Core
+      this.register(new HelpCommand());
+      this.register(new ListCommand());
       this.register(new MigrateCommand());
       this.register(new QueueWorkCommand());
       this.register(new DashboardCommand());
@@ -55,7 +59,9 @@ export class Console {
 
     const command = this.commands.get(commandName);
     if (!command) {
+      // Suggest closest match?
       console.error(pc.red(`Command "${commandName}" not found.`));
+      console.log(`Run ${pc.cyan('canx list')} to view available commands.`);
       return;
     }
 
@@ -87,11 +93,41 @@ export class Console {
     console.log(pc.green(`\nCanxJS CLI\n`));
     console.log(pc.yellow(`Usage:`));
     console.log(`  canx <command> [options]\n`);
-    console.log(pc.yellow(`Available Commands:`));
     
-    // Group by namespace if needed, simplified for now
-    for (const [name, cmd] of this.commands) {
-      console.log(`  ${pc.cyan(cmd.signature.padEnd(25))} ${cmd.description}`);
+    // Group commands
+    const groups: Record<string, Command[]> = {};
+    const others: Command[] = [];
+
+    // Unique commands to avoid generator duplication if they register multiple names (MakeCommand serves multiple)
+    // MakeGenerator registers unique names (make:controller, make:model), so it's fine.
+    
+    const sortedCommands = Array.from(this.commands.values()).sort((a, b) => 
+        a.signature.localeCompare(b.signature)
+    );
+
+    for (const cmd of sortedCommands) {
+        const name = cmd.signature.split(' ')[0];
+        if (name.includes(':')) {
+            const prefix = name.split(':')[0];
+            if (!groups[prefix]) groups[prefix] = [];
+            groups[prefix].push(cmd);
+        } else {
+            others.push(cmd);
+        }
+    }
+
+    if (others.length > 0) {
+        console.log(pc.yellow('Available commands:'));
+        for (const cmd of others) {
+            console.log(`  ${pc.cyan(cmd.signature.split(' ')[0].padEnd(25))} ${cmd.description}`);
+        }
+    }
+
+    for (const [prefix, cmds] of Object.entries(groups)) {
+        console.log(pc.yellow(`\n ${prefix}`));
+        for (const cmd of cmds) {
+            console.log(`  ${pc.cyan(cmd.signature.split(' ')[0].padEnd(25))} ${cmd.description}`);
+        }
     }
     console.log('');
   }

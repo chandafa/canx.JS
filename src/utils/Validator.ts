@@ -117,17 +117,25 @@ type AsyncValidatorFn = (value: unknown, param?: string) => Promise<boolean>;
 const asyncValidators: Record<string, AsyncValidatorFn> = {
   unique: async (v, p) => {
     if (!p) return false;
-    const [table, column, exceptId, idColumn = 'id'] = p.split(',').map(s => s.trim());
+    const parts = p.split(',').map(s => s.trim());
+    const table = parts[0];
+    const column = parts[1];
+    const exceptId = parts[2];
+    const idColumn = parts[3] || 'id';
     
+    // Security: Validate identifiers to prevent SQL Injection
+    const identifierRegex = /^[a-zA-Z0-9_]+$/;
+    if (!identifierRegex.test(table)) throw new Error(`Invalid table name in validation rule: ${table}`);
+    if (!identifierRegex.test(column)) throw new Error(`Invalid column name in validation rule: ${column}`);
+    if (idColumn && !identifierRegex.test(idColumn)) throw new Error(`Invalid id column in validation rule: ${idColumn}`);
+
     let sql = `SELECT COUNT(*) as count FROM ${table} WHERE ${column} = ?`;
     const params: any[] = [v];
     
     if (exceptId) {
-      sql += ` AND ${idColumn} != ?`;
+      sql += ` AND ${idColumn} != ?`; // idColumn is validated above
       params.push(exceptId);
     }
-    
-    
     
     try {
       const rows = await query<{count: number}>(sql, params);
@@ -140,7 +148,14 @@ const asyncValidators: Record<string, AsyncValidatorFn> = {
   
   exists: async (v, p) => {
     if (!p) return false;
-    const [table, column = 'id'] = p.split(',').map(s => s.trim());
+    const parts = p.split(',').map(s => s.trim());
+    const table = parts[0];
+    const column = parts[1] || 'id';
+    
+    // Security: Validate identifiers
+    const identifierRegex = /^[a-zA-Z0-9_]+$/;
+    if (!identifierRegex.test(table)) throw new Error(`Invalid table name in validation rule: ${table}`);
+    if (!identifierRegex.test(column)) throw new Error(`Invalid column name in validation rule: ${column}`);
     
     const sql = `SELECT COUNT(*) as count FROM ${table} WHERE ${column} = ?`;
     

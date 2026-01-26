@@ -110,13 +110,15 @@ class User extends Model {
   static tableName = "users";
 }
 
+// Query with fluent API
+const activeUsers = await User.query()
   .where("active", "=", true)
   .orderBy("created_at", "desc")
   .limit(10)
   .get();
 
 // Eager Loading (N+1 Solution)
-const users = await User.with('posts', 'profile').get();
+const users = await User.with("posts", "profile").get();
 ```
 
 ### 🔐 Built-in Authentication & Sessions

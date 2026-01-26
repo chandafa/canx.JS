@@ -6,8 +6,9 @@
 // Global JSX namespace for type compatibility
 declare global {
   namespace JSX {
-    // In CanxJS, JSX components return HTML strings directly (SSR)
-    type Element = string;
+    // In CanxJS, JSX components return SafeString (SSR)
+    // We allow string for raw usage but prefer SafeString
+    type Element = string; // SafeString extends String
     interface IntrinsicElements {
       [elemName: string]: any;
     }
@@ -98,6 +99,8 @@ export interface CanxResponse {
   empty: (status?: number) => Response;
   /** Server-sent events stream */
   sse: (generator: AsyncGenerator<string>) => Response;
+  /** Send HotWire/Turbo Stream fragment */
+  hotwire: (content: string, options?: { target: string; action?: 'replace' | 'update' | 'prepend' | 'append' | 'remove' | 'after' | 'before' }) => Response;
   /** Whether headers have been sent */
   headersSent: boolean;
 }
@@ -418,19 +421,25 @@ export interface CanxApplication {
   close: () => Promise<void>;
 }
 
+export type RouteHandlerOrTuple = MiddlewareHandler | RouteHandler | [any, string];
+
 export interface RouterInstance {
-  get: (path: string, ...handlers: (MiddlewareHandler | RouteHandler)[]) => RouterInstance;
-  post: (path: string, ...handlers: (MiddlewareHandler | RouteHandler)[]) => RouterInstance;
-  put: (path: string, ...handlers: (MiddlewareHandler | RouteHandler)[]) => RouterInstance;
-  patch: (path: string, ...handlers: (MiddlewareHandler | RouteHandler)[]) => RouterInstance;
-  delete: (path: string, ...handlers: (MiddlewareHandler | RouteHandler)[]) => RouterInstance;
-  options: (path: string, ...handlers: (MiddlewareHandler | RouteHandler)[]) => RouterInstance;
-  head: (path: string, ...handlers: (MiddlewareHandler | RouteHandler)[]) => RouterInstance;
-  all: (path: string, ...handlers: (MiddlewareHandler | RouteHandler)[]) => RouterInstance;
+  get: (path: string, ...handlers: RouteHandlerOrTuple[]) => RouterInstance;
+  post: (path: string, ...handlers: RouteHandlerOrTuple[]) => RouterInstance;
+  put: (path: string, ...handlers: RouteHandlerOrTuple[]) => RouterInstance;
+  patch: (path: string, ...handlers: RouteHandlerOrTuple[]) => RouterInstance;
+  delete: (path: string, ...handlers: RouteHandlerOrTuple[]) => RouterInstance;
+  options: (path: string, ...handlers: RouteHandlerOrTuple[]) => RouterInstance;
+  head: (path: string, ...handlers: RouteHandlerOrTuple[]) => RouterInstance;
+  all: (path: string, ...handlers: RouteHandlerOrTuple[]) => RouterInstance;
   group: (prefix: string, callback: (router: RouterInstance) => void) => RouterInstance;
   middleware: (...handlers: MiddlewareHandler[]) => RouterInstance;
   /** Register a controller class */
   controller: (path: string, controller: any) => RouterInstance;
+  /** Name the last route */
+  name: (name: string) => RouterInstance;
+  /** Generate URL */
+  url: (name: string, params?: Record<string, any>) => string;
 }
 
 // ============================================
@@ -671,3 +680,16 @@ export interface WebSocketConfig {
   compression?: boolean;
 }
 
+
+// ============================================
+// JSX / View Types
+// ============================================
+
+export declare namespace Canx {
+    namespace JSX {
+        interface Element extends String {}
+        interface IntrinsicElements {
+            [elemName: string]: any;
+        }
+    }
+}

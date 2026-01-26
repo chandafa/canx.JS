@@ -7,6 +7,7 @@ import { Server, createCanxRequest, createCanxResponse } from './core/Server';
 import { Router, createRouter } from './core/Router';
 import { MiddlewarePipeline } from './core/Middleware';
 import { getControllerMeta } from './mvc/Controller';
+import { container } from './container/Container';
 
 export class Canx implements CanxApplication {
   config: ServerConfig;
@@ -23,6 +24,11 @@ export class Canx implements CanxApplication {
       ...config,
     };
     this.router = createRouter();
+    
+    // Bind Router to Container for global helpers
+    // Bind Router to Container for global helpers
+    container.instance('Router', this.router);
+
     this.pipeline = new MiddlewarePipeline();
   }
 

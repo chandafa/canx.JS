@@ -13,6 +13,7 @@ import type {
   CorsConfig,
 } from '../types';
 import { ErrorHandler } from './ErrorHandler';
+import pc from 'picocolors';
 
 /**
  * Generate unique request ID
@@ -81,40 +82,59 @@ export function createCanxRequest(
     context: new Map(),
     timestamp: Date.now(),
     id: generateRequestId(),
+    session: undefined as any,
 
     async body<T = unknown>(): Promise<T> {
-      if (!bodyParsed) {
-        const contentType = raw.headers.get('content-type') || '';
-        
-        if (contentType.includes('application/json')) {
-          cachedBody = await raw.json();
-        } else if (contentType.includes('application/x-www-form-urlencoded')) {
-          const text = await raw.text();
-          cachedBody = Object.fromEntries(new URLSearchParams(text));
-        } else if (contentType.includes('multipart/form-data')) {
-          cachedBody = await raw.formData();
-        } else {
-          cachedBody = await raw.text();
-        }
-        bodyParsed = true;
+      if (bodyParsed) return cachedBody as T;
+      
+      const contentType = raw.headers.get('content-type') || '';
+      
+      try {
+          if (contentType.includes('application/json')) {
+            cachedBody = await raw.json();
+          } else if (contentType.includes('application/x-www-form-urlencoded')) {
+            const text = await raw.text();
+            cachedBody = Object.fromEntries(new URLSearchParams(text));
+          } else if (contentType.includes('multipart/form-data')) {
+            // FormData is special, it doesn't map nicely to a simple object for simple caching without loss
+            // But let's cache it as FormData object?
+            // Usually body() implies "data payload". 
+            // Let's stick to raw.formData() but mark parsed.
+            // cachedBody = await raw.formData();
+            // Actually, let's allow formData to be separate or handle it here?
+            cachedBody = await raw.formData();
+          } else {
+            cachedBody = await raw.text();
+          }
+          bodyParsed = true;
+          return cachedBody as T;
+      } catch (e) {
+          throw new Error(`Failed to parse body: ${(e as Error).message}`);
       }
-      return cachedBody as T;
     },
 
     async json<T = unknown>(): Promise<T> {
-      if (!bodyParsed) {
-        cachedBody = await raw.json();
-        bodyParsed = true;
-      }
+      if (bodyParsed) return cachedBody as T;
+      cachedBody = await raw.json();
+      bodyParsed = true;
       return cachedBody as T;
     },
 
     async formData(): Promise<FormData> {
+      if (bodyParsed && cachedBody instanceof FormData) return cachedBody;
       return raw.formData();
     },
 
     async text(): Promise<string> {
-      return raw.text();
+      if (bodyParsed) {
+          if (typeof cachedBody === 'string') return cachedBody;
+          if (typeof cachedBody === 'object') return JSON.stringify(cachedBody);
+          return String(cachedBody);
+      }
+      const text = await raw.text();
+      cachedBody = text;
+      bodyParsed = true;
+      return text;
     },
 
     async arrayBuffer(): Promise<ArrayBuffer> {
@@ -340,6 +360,29 @@ export function createCanxResponse(): CanxResponse {
         headers: responseHeaders,
       });
     },
+
+    hotwire(content: string, options: { target: string; action?: 'replace' | 'update' | 'prepend' | 'append' | 'remove' | 'after' | 'before' } = { target: 'body' }): Response {
+      responseHeaders.set('Content-Type', 'text/vnd.turbo-stream.html; charset=utf-8');
+      addCookiesToHeaders();
+
+      const action = options.action || 'replace';
+      const target = options.target;
+
+      // Clean up content if it's not a string (e.g. if extended to support array/objects)
+      const htmlContent = String(content);
+
+      const streamHtml = `
+<turbo-stream action="${action}" target="${target}">
+  <template>
+    ${htmlContent}
+  </template>
+</turbo-stream>`.trim();
+
+      return new Response(streamHtml, {
+        status: statusCode,
+        headers: responseHeaders,
+      });
+    },
   };
 
   function addCookiesToHeaders() {
@@ -424,6 +467,13 @@ export class Server {
   }
 
   /**
+   * Handle a request directly (useful for testing)
+   */
+  async handle(req: Request): Promise<Response> {
+    return this.requestHandler(req);
+  }
+
+  /**
    * Start the server
    */
   async listen(callback?: () => void): Promise<void> {
@@ -505,31 +555,34 @@ export class Server {
       }
 
       const displayHost = this.config.hostname === '0.0.0.0' ? 'localhost' : this.config.hostname;
+      const environment = this.config.development ? pc.yellow('development') : pc.green('production');
+      const url = `http://${displayHost}:${this.config.port}`;
+      
       console.log(`
-╔══════════════════════════════════════════════════════════╗
-║                                                          ║
-║   🚀 CanxJS Server running                               ║
-║                                                          ║
-║   → Local:   http://${displayHost}:${this.config.port}                        ║
-║   → Mode:    ${this.config.development ? 'Development' : 'Production'}                              ║
-║                                                          ║
-╚══════════════════════════════════════════════════════════╝
+${pc.cyan('╔══════════════════════════════════════════════════════════╗')}
+${pc.cyan('║')}                                                          ${pc.cyan('║')}
+${pc.cyan('║')}   🚀 ${pc.bold(pc.magenta('CanxJS Server'))} running                               ${pc.cyan('║')}
+${pc.cyan('║')}                                                          ${pc.cyan('║')}
+${pc.cyan('║')}   → Local:   ${pc.bold(pc.underline(url))}                        ${pc.cyan('║')}
+${pc.cyan('║')}   → Mode:    ${environment}                              ${pc.cyan('║')}
+${pc.cyan('║')}                                                          ${pc.cyan('║')}
+${pc.cyan('╚══════════════════════════════════════════════════════════╝')}
       `);
     } catch (error: any) {
       if (error.code === 'EADDRINUSE' || error.message?.includes('EADDRINUSE') || error.syscall === 'listen') {
         console.error(`
-\x1b[31m╔══════════════════════════════════════════════════════════╗
-║                                                          ║
-║   ❌ ERROR: Port ${this.config.port} is already in use                  ║
-║                                                          ║
-║   It looks like another application is already using     ║
-║   this port. Please try:                                 ║
-║                                                          ║
-║   1. Stopping the other process                          ║
-║   2. Using a different port in your app config           ║
-║      (e.g., app.create({ port: ${Number(this.config.port) + 1} }))              ║
-║                                                          ║
-╚══════════════════════════════════════════════════════════╝\x1b[0m
+${pc.red('╔══════════════════════════════════════════════════════════╗')}
+${pc.red('║')}                                                          ${pc.red('║')}
+${pc.red('║')}   ❌ ${pc.bold('ERROR: Port ' + this.config.port + ' is already in use')}                  ${pc.red('║')}
+${pc.red('║')}                                                          ${pc.red('║')}
+${pc.red('║')}   It looks like another application is already using     ${pc.red('║')}
+${pc.red('║')}   this port. Please try:                                 ${pc.red('║')}
+${pc.red('║')}                                                          ${pc.red('║')}
+${pc.red('║')}   1. Stopping the other process                          ${pc.red('║')}
+${pc.red('║')}   2. Using a different port in your app config           ${pc.red('║')}
+${pc.red('║')}      (e.g., app.create({ port: ${Number(this.config.port) + 1} }))              ${pc.red('║')}
+${pc.red('║')}                                                          ${pc.red('║')}
+${pc.red('╚══════════════════════════════════════════════════════════╝')}
         `);
         process.exit(1);
       } else {

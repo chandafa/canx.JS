@@ -75,9 +75,36 @@ export class Router implements RouterInstance {
   private globalMiddlewares: MiddlewareHandler[] = [];
   private currentMiddlewares: MiddlewareHandler[] = [];
   private prefix: string = '';
+  // State for named routes
+  private namedRoutes: Map<string, string> = new Map();
+  private lastRoutePath: string | null = null;
+
+  // ... (previous)
+
   private routeCache: Map<string, RouteMatch | null> = new Map();
 
-  constructor(options: RouterOptions = {}) {
+
+  // New Method: Name the last route
+  name(name: string): RouterInstance {
+      if (this.lastRoutePath) {
+          this.namedRoutes.set(name, this.lastRoutePath);
+      }
+      return this;
+  }
+
+  // New Method: Generate URL
+  url(name: string, params: Record<string, any> = {}): string {
+      let path = this.namedRoutes.get(name);
+      if (!path) throw new Error(`Route "${name}" not found.`);
+      
+      for (const [key, value] of Object.entries(params)) {
+          path = path.replace(`:${key}`, String(value));
+          // Also handle optional params? For V1, simplicity.
+      }
+      return path;
+  }
+
+  constructor(options?: RouterOptions) {
     this.routerOptions = { caseSensitive: false, trailingSlash: 'ignore', cache: true, ...options };
     const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'ALL'];
     methods.forEach(m => this.trees.set(m, createNode()));
@@ -92,6 +119,7 @@ export class Router implements RouterInstance {
   private addRoute(method: HttpMethod, path: string, handler: RouteHandler, mws: MiddlewareHandler[] = []): void {
     // Normalize path but preserve original for param name extraction
     const originalPath = (this.prefix + path).startsWith('/') ? this.prefix + path : '/' + this.prefix + path;
+    this.lastRoutePath = originalPath;
     const normalized = this.normalizePath(this.prefix + path);
     const segments = normalized.split('/').filter(Boolean);
     const originalSegments = originalPath.split('/').filter(Boolean);

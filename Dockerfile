@@ -1,27 +1,25 @@
-# Base image
-FROM oven/bun:1-alpine as base
+# CanXJS Production Dockerfile
+# Optimized for Bun
+
+FROM oven/bun:1.0 as base
 WORKDIR /app
 
-# Development stage
-FROM base as dev
-COPY package.json bun.lockb ./
-RUN bun install
-COPY . .
-EXPOSE 3000
-CMD ["bun", "dev"]
+# Install dependencies
+COPY package.json bun.lockb* ./
+RUN bun install --production
 
-# Build stage
-FROM base as builder
-COPY package.json bun.lockb ./
-RUN bun install --frozen-lockfile
-COPY . .
-RUN bun run build
+# Copy source
+COPY src ./src
+COPY public ./public
+COPY tsconfig.json ./
 
-# Production stage
-FROM base as prod
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package.json ./
-# Install production deps only (if any specific runtimes needed, otherwise bun includes primitive ones)
-# RUN bun install --production 
+# Build info
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Expose port
 EXPOSE 3000
-CMD ["bun", "dist/index.js"]
+
+# Start command
+# Adjust entrypoint if needed (e.g., src/index.ts)
+CMD ["bun", "run", "src/main.ts"]

@@ -53,6 +53,12 @@ export class MakeGenerator implements Command {
             return;
         }
 
+        // Validate name to prevent path traversal and invalid chars
+        if (!/^[A-Z][a-zA-Z0-9]*$/.test(name)) {
+             console.error(pc.red(`Invalid name "${name}". Names must start with an uppercase letter and contain only alphanumeric characters.`));
+             return;
+        }
+
         const cwd = process.cwd();
         let content = '';
         let targetPath = '';
@@ -127,12 +133,12 @@ export class MakeGenerator implements Command {
     }
 
     getController(name: string) {
-        return `import { Controller, Get } from 'canxjs';
+        return `import { Controller, Get, type CanxRequest } from 'canxjs';
 
 export class ${name} extends Controller {
   @Get('/')
-  index() {
-    return { message: 'Hello from ${name}' };
+  index(req: CanxRequest) {
+    return this.render('${name}/index', { message: 'Hello from ${name}' });
   }
 }
 `;
@@ -143,6 +149,9 @@ export class ${name} extends Controller {
 
 export class ${name} extends Model {
   static tableName = '${name.toLowerCase()}s';
+  
+  // Define columns if not using JIT auto-discovery
+  // id!: number;
 }
 `;
     }
