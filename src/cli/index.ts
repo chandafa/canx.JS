@@ -1,5 +1,6 @@
 import pc from 'picocolors';
 import type { Command } from './Command';
+export type { Command };
 
 // Core Commands
 import { MigrateCommand } from './commands/MigrateCommand';
@@ -12,6 +13,8 @@ import { OptimizeCommand } from './commands/OptimizeCommand';
 import { DashboardCommand } from './commands/Dashboard';
 import { HelpCommand } from './commands/HelpCommand';
 import { ListCommand } from './commands/ListCommand';
+import { TinkerCommand } from './commands/TinkerCommand';
+import { MakeCrudCommand } from './commands/MakeCrudCommand';
 
 export class Console {
   private commands: Map<string, Command> = new Map();
@@ -27,6 +30,7 @@ export class Console {
       this.register(new TestCommand());
       this.register(new ScheduleRunCommand());
       this.register(new OptimizeCommand());
+      this.register(new TinkerCommand());
       
       // Generators
       this.register(new MakeGenerator('controller'));
@@ -42,6 +46,18 @@ export class Console {
       this.register(new MakeGenerator('job'));
       this.register(new MakeGenerator('notification'));
       this.register(new MakeGenerator('mail'));
+      
+      // New Generators
+      this.register(new MakeGenerator('action'));
+      this.register(new MakeGenerator('dto'));
+      this.register(new MakeGenerator('provider'));
+      this.register(new MakeGenerator('command'));
+      this.register(new MakeGenerator('microservice'));
+      this.register(new MakeGenerator('cqrs-command'));
+      this.register(new MakeGenerator('cqrs-handler'));
+      
+      // Bundles
+      this.register(new MakeCrudCommand());
     }
 
   register(command: Command) {

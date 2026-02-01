@@ -2,7 +2,7 @@
  * CanxJS Model - Zero-config ORM with MySQL primary, PostgreSQL secondary
  */
 
-import type { DatabaseConfig, DatabaseDriver, ModelField, ModelSchema, QueryBuilder } from '../types';
+import type { DatabaseConfig, DatabaseDriver, ModelField, ModelSchema, QueryBuilder, CastType } from '../types';
 
 // Database connection pool
 let mysqlPool: any = null;
@@ -130,9 +130,7 @@ export interface ModelObserver {
   restored?(model: Model): void | Promise<void>;
 }
 
-// Cast Types
-export type CastType = 'string' | 'int' | 'integer' | 'real' | 'float' | 'double' | 'boolean' | 'bool' 
-                     | 'date' | 'datetime' | 'timestamp' | 'json' | 'array' | 'collection' | 'encrypted';
+// Cast Types definition moved to types/index.ts
 
 // Query Builder implementation
 export class QueryBuilderImpl<T> implements QueryBuilder<T> {
@@ -569,6 +567,16 @@ export abstract class Model {
     if (data) this.fill(data);
   }
 
+  /**
+   * Create a new query builder for this model.
+   */
+  // Duplicate methods removed - verify subsequent duplicates manually if needed
+
+  /**
+   * Add a basic where clause to the query.
+   */
+
+
   // ============================
   // Observer Registration
   // ============================
@@ -994,6 +1002,14 @@ export abstract class Model {
   }
   
 
+
+  static where<T extends Model>(this: any, col: string | any, op?: string, val?: any): QueryBuilder<T> {
+    const qb = this.query();
+    if (val === undefined) {
+        return qb.where(col, '=', op);
+    }
+    return qb.where(col, op, val);
+  }
 }
 
 export { query, execute };

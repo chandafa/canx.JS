@@ -117,6 +117,35 @@ export class MakeGenerator implements Command {
                 content = this.getMail(name);
                 targetPath = join(cwd, 'src/mails', `${name}.ts`);
                 break;
+            // New Generators
+            case 'action':
+                content = this.getAction(name);
+                targetPath = join(cwd, 'src/actions', `${name}.ts`);
+                break;
+            case 'dto':
+                content = this.getDto(name);
+                targetPath = join(cwd, 'src/dtos', `${name}.ts`);
+                break;
+            case 'provider':
+                content = this.getProvider(name);
+                targetPath = join(cwd, 'src/providers', `${name}.ts`);
+                break;
+            case 'command':
+                content = this.getCommand(name);
+                targetPath = join(cwd, 'src/commands', `${name}.ts`);
+                break;
+            case 'microservice':
+                content = this.getMicroservice(name);
+                targetPath = join(cwd, 'src/microservices', `${name}.ts`);
+                break;
+            case 'cqrs-command':
+                content = this.getCqrsCommand(name);
+                targetPath = join(cwd, 'src/commands', `${name}.ts`);
+                break;
+            case 'cqrs-handler':
+                content = this.getCqrsHandler(name);
+                targetPath = join(cwd, 'src/handlers', `${name}.ts`);
+                break;
         }
 
         if (filesExists(targetPath)) {
@@ -318,30 +347,6 @@ export class ${name} {
     // Implement your logic here
     return null;
   }
-
-  /**
-   * Example method - replace with your business logic
-   */
-  async create(data: Record<string, unknown>): Promise<any> {
-    // Implement your logic here
-    return data;
-  }
-
-  /**
-   * Example method - replace with your business logic
-   */
-  async update(id: number, data: Record<string, unknown>): Promise<any> {
-    // Implement your logic here
-    return { id, ...data };
-  }
-
-  /**
-   * Example method - replace with your business logic
-   */
-  async delete(id: number): Promise<boolean> {
-    // Implement your logic here
-    return true;
-  }
 }
 `;
     }
@@ -494,6 +499,145 @@ export class ${name} {
    */
   async sendTo(email: string): Promise<void> {
     await this.build().to(email).send();
+  }
+}
+`;
+    }
+
+    // ==========================================
+    // New Features
+    // ==========================================
+
+    getAction(name: string) {
+        return `import { Action, Injectable } from 'canxjs';
+
+/**
+ * ${name} Action
+ * Encapsulates a single task or business rule.
+ */
+@Injectable()
+export class ${name} extends Action {
+  /**
+   * Execute the action
+   */
+  async handle(input: any): Promise<any> {
+    // Implement your action logic here
+    return input;
+  }
+}
+`;
+    }
+
+    getDto(name: string) {
+      return `import { z, type Infer } from 'canxjs';
+
+// Define the schema
+export const ${name}Schema = z.object({
+  // Define schema properties
+  // name: z.string().min(3),
+  // email: z.string().email(),
+});
+
+/**
+ * ${name} Data Transfer Object
+ */
+export type ${name} = Infer<typeof ${name}Schema>;
+
+export const validate${name} = (data: unknown) => {
+  return ${name}Schema.parse(data);
+};
+`;
+    }
+
+    getProvider(name: string) {
+      return `import { ServiceProvider } from 'canxjs';
+
+export class ${name} extends ServiceProvider {
+  /**
+   * Register services into the container.
+   */
+  register(): void {
+    // this.app.bind('service', () => new Service());
+  }
+
+  /**
+   * Bootstrap any application services.
+   */
+  async boot(): Promise<void> {
+    // Code to run after all providers function registered
+  }
+}
+`;
+    }
+
+    getCommand(name: string) {
+      // Convert CamelCase to kebab-case for signature
+      const commandName = name.replace(/([a-z0-9])([A-Z])/g, '$1:$2').toLowerCase();
+      
+      return `import type { Command } from 'canxjs/cli';
+import pc from 'picocolors';
+
+export class ${name} implements Command {
+  signature = 'app:${commandName}';
+  description = 'My custom command';
+
+  async handle(args: string[], flags: Record<string, any>): Promise<void> {
+    console.log(pc.green('${name} executed!'));
+    // Command logic here
+  }
+}
+`;
+    }
+    getMicroservice(name: string) {
+       return `import { createMicroservice, Transport } from 'canxjs';
+
+/**
+ * ${name} Microservice
+ */
+async function bootstrap() {
+  const app = await createMicroservice({
+    transport: Transport.TCP,
+    options: {
+      host: '127.0.0.1',
+      port: 8877,
+    },
+  });
+
+  // Register controllers or message handlers here
+  // app.registerControllers([AppController]);
+
+  await app.listen();
+  console.log('${name} Microservice is listening');
+}
+
+bootstrap();
+`;
+    }
+
+    getCqrsCommand(name: string) {
+        return `import { ICommand } from 'canxjs';
+
+export class ${name} implements ICommand {
+  constructor(
+    public readonly id: string,
+    // Add command properties here
+  ) {}
+}
+`;
+    }
+
+    getCqrsHandler(name: string) {
+        // Assume name is something like CreateUserHandler
+        // We try to guess the command name, e.g. CreateUser
+        const commandName = name.replace(/Handler$/, '');
+        return `import { CommandHandler, ICommandHandler } from 'canxjs';
+import { ${commandName} } from '../commands/${commandName}';
+
+@CommandHandler(${commandName})
+export class ${name} implements ICommandHandler<${commandName}> {
+  async execute(command: ${commandName}): Promise<void> {
+    // Implement business logic
+    console.log('${name} executed for command:', command);
   }
 }
 `;

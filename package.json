@@ -1,43 +1,59 @@
 {
   "name": "canxjs",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Ultra-fast async-first MVC backend framework for Bun runtime",
   "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/src/index.js",
+  "module": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./dist/src/index.js",
+      "types": "./dist/src/index.d.ts"
     },
     "./router": {
-      "import": "./dist/core/Router.js",
-      "types": "./dist/core/Router.d.ts"
+      "import": "./dist/src/core/Router.js",
+      "types": "./dist/src/core/Router.d.ts"
     },
     "./controller": {
-      "import": "./dist/mvc/Controller.js",
-      "types": "./dist/mvc/Controller.d.ts"
+      "import": "./dist/src/mvc/Controller.js",
+      "types": "./dist/src/mvc/Controller.d.ts"
     },
     "./model": {
-      "import": "./dist/mvc/Model.js",
-      "types": "./dist/mvc/Model.d.ts"
+      "import": "./dist/src/mvc/Model.js",
+      "types": "./dist/src/mvc/Model.d.ts"
     },
     "./view": {
-      "import": "./dist/mvc/View.js",
-      "types": "./dist/mvc/View.d.ts"
+      "import": "./dist/src/mvc/View.js",
+      "types": "./dist/src/mvc/View.d.ts"
     },
     "./jsx-runtime": {
-      "import": "./dist/mvc/jsx-runtime.js",
-      "types": "./dist/mvc/jsx-runtime.d.ts"
+      "import": "./dist/src/mvc/jsx-runtime.js",
+      "types": "./dist/src/mvc/jsx-runtime.d.ts"
     },
     "./jsx-dev-runtime": {
-      "import": "./dist/mvc/jsx-runtime.js",
-      "types": "./dist/mvc/jsx-runtime.d.ts"
+      "import": "./dist/src/mvc/jsx-runtime.js",
+      "types": "./dist/src/mvc/jsx-runtime.d.ts"
+    },
+    "./cli": {
+      "import": "./dist/src/cli/index.js",
+      "types": "./dist/src/cli/index.d.ts"
+    },
+    "./microservices": {
+      "import": "./dist/src/microservices/index.js",
+      "types": "./dist/src/microservices/index.d.ts"
+    },
+    "./cqrs": {
+      "import": "./dist/src/cqrs/index.js",
+      "types": "./dist/src/cqrs/index.d.ts"
+    },
+    "./graphql": {
+      "import": "./dist/src/graphql/index.js",
+      "types": "./dist/src/graphql/index.d.ts"
     }
   },
   "bin": {
-    "canx": "./bin/canx.ts"
+    "canx": "./dist/bin/canx.js"
   },
   "files": [
     "dist",

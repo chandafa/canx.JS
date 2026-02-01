@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.1] - 2026-02-01
+
+### Added
+
+- **Docs**: New Aspect-Oriented Programming (AOP) documentation covering Interceptors, Guards, and Pipes.
+- **Mail**: Added `view()` method to `MailBuilder` for rendering email templates.
+
+### Fixed
+
+- **Router**: Added safety check for missing controller methods to prevent crash loops and provide clear error messages.
+- **Docs**: Fixed unused imports and keys in documentation site.
+
 ## [1.6.0] - 2026-01-27
 
 ### Added

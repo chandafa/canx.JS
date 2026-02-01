@@ -1,0 +1,148 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.RedisDriver = void 0;
+class RedisDriver {
+    client;
+    queueKey;
+    delayedKey;
+    failedKey;
+    processedKey;
+    constructor(client, prefix = 'canx_queue') {
+        this.client = client;
+        this.queueKey = `${prefix}:pending`;
+        this.delayedKey = `${prefix}:delayed`;
+        this.failedKey = `${prefix}:failed`;
+        this.processedKey = `${prefix}:processed`;
+    }
+    async push(payload) {
+        const id = Math.random().toString(36).substring(7);
+        const job = {
+            ...payload,
+            id,
+            status: 'pending',
+            attempts: 0,
+            createdAt: Date.now(),
+        };
+        // Store job in a list
+        await this.client.lpush(this.queueKey, JSON.stringify(job));
+        return id;
+    }
+    async later(delay, payload) {
+        const id = Math.random().toString(36).substring(7);
+        const job = {
+            ...payload,
+            id,
+            status: 'pending',
+            attempts: 0,
+            createdAt: Date.now(),
+        };
+        // Store in sorted set for delayed execution
+        await this.client.zadd(this.delayedKey, Date.now() + delay, JSON.stringify(job));
+        return id;
+    }
+    async pop() {
+        // 1. Move delayed jobs to pending
+        const now = Date.now();
+        const ready = await this.client.zrangebyscore(this.delayedKey, 0, now);
+        if (ready.length > 0) {
+            for (const jobStr of ready) {
+                await this.client.lpush(this.queueKey, jobStr);
+                await this.client.zrem(this.delayedKey, jobStr);
+            }
+        }
+        // 2. Pop from pending
+        const jobStr = await this.client.rpop(this.queueKey);
+        if (!jobStr)
+            return null;
+        try {
+            const job = JSON.parse(jobStr);
+            job.status = 'processing';
+            return job;
+        }
+        catch (e) {
+            return null;
+        }
+    }
+    async complete(job) {
+        job.status = 'completed';
+        await this.client.incr(this.processedKey);
+    }
+    async fail(job, error) {
+        job.status = 'failed';
+        job.error = error.message;
+        await this.client.lpush(this.failedKey, JSON.stringify(job));
+    }
+    async release(job, delay) {
+        job.status = 'pending';
+        job.attempts++;
+        await this.client.zadd(this.delayedKey, Date.now() + delay, JSON.stringify(job));
+    }
+    async clear() {
+        await this.client.del(this.queueKey);
+        await this.client.del(this.delayedKey);
+        await this.client.del(this.failedKey);
+        await this.client.del(this.processedKey);
+    }
+    async size() {
+        const len = await this.client.llen(this.queueKey);
+        const delayed = await this.client.zcard(this.delayedKey);
+        return len + delayed;
+    }
+    // Dashboard Methods
+    async getFailed(offset = 0, limit = 20) {
+        const jobs = await this.client.lrange(this.failedKey, offset, offset + limit - 1);
+        return jobs.map(j => JSON.parse(j));
+    }
+    async getPending(offset = 0, limit = 20) {
+        const jobs = await this.client.lrange(this.queueKey, offset, offset + limit - 1);
+        return jobs.map(j => JSON.parse(j));
+    }
+    async getStats() {
+        const pending = await this.client.llen(this.queueKey);
+        const delayed = await this.client.zcard(this.delayedKey);
+        const failed = await this.client.llen(this.failedKey);
+        const processedStr = await this.client.get(this.processedKey);
+        const processed = processedStr ? parseInt(processedStr) : 0;
+        return { pending: pending + delayed, failed, processed };
+    }
+    async retry(jobId) {
+        // This is tricky in Redis without scanning. 
+        // For now, we assume we fetch the job first using getFailed, then retry.
+        // But wait, getFailed returns a list.
+        // Optimization: We iterate through the failed list? No, that's slow.
+        // For a 'lite' dashboard, we might just load the failed jobs in UI, and when user clicks retry,
+        // we pass the FULL job object or just the ID. If just ID, we need to find it.
+        // To keep it simple O(N) traversal of failed list is acceptable for now.
+        const allFailed = await this.client.lrange(this.failedKey, 0, -1);
+        for (const jobStr of allFailed) {
+            const job = JSON.parse(jobStr);
+            if (job.id === jobId) {
+                // 1. Remove from failed
+                await this.client.lrem(this.failedKey, 1, jobStr);
+                // 2. Re-queue as pending
+                job.status = 'pending';
+                job.error = undefined;
+                job.createdAt = Date.now();
+                await this.client.lpush(this.queueKey, JSON.stringify(job));
+                break;
+            }
+        }
+    }
+    async remove(jobId) {
+        // Remove from pending?
+        // This requires scanning lists which is expensive.
+        // For failed jobs:
+        const allFailed = await this.client.lrange(this.failedKey, 0, -1);
+        for (const jobStr of allFailed) {
+            if (jobStr.includes(jobId)) { // Quick check
+                const job = JSON.parse(jobStr);
+                if (job.id === jobId) {
+                    await this.client.lrem(this.failedKey, 1, jobStr);
+                    return;
+                }
+            }
+        }
+        // Also check pending... (omitted for performance unless requested)
+    }
+}
+exports.RedisDriver = RedisDriver;

@@ -250,6 +250,10 @@ export class Router implements RouterInstance {
         if (typeof instance.setContext === 'function') {
           instance.setContext(req, res);
         }
+        if (typeof instance[key] !== 'function') {
+            console.error(`Controller method ${key} not found on ${instance.constructor.name}`);
+            return res.status(500).json({ error: `Method ${key} not found` });
+        }
         return instance[key](req, res);
       };
 

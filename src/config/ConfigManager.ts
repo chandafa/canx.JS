@@ -3,7 +3,7 @@
  * Centralized configuration management with dot notation access
  */
 
-import { readFile, exists } from 'fs/promises';
+import { readFile } from 'fs/promises';
 import { join } from 'path';
 
 // ============================================

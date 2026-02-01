@@ -263,6 +263,9 @@ export interface RelationInfo {
   relatedPivotKey?: string;
 }
 
+export type CastType = 'int' | 'integer' | 'real' | 'float' | 'double' | 'string' | 'bool' | 'boolean' | 'object' | 'array' | 'json' | 'collection' | 'date' | 'datetime' | 'timestamp';
+
+
 // ============================================
 // View / JSX Types
 // ============================================

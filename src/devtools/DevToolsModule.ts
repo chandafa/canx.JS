@@ -1,7 +1,8 @@
 import { Module, CanxModule } from '../core/Module';
-import { Controller, Get } from '../mvc/Controller';
+import { Controller, Get, Delete } from '../mvc/Controller';
 import { Router } from '../core/Router';
 import { ModuleContainer } from '../core/Module';
+import { debugWatcher } from './DebugWatcher';
 
 @Controller('devtools')
 export class DevToolsController {
@@ -9,6 +10,18 @@ export class DevToolsController {
     private router: Router,
     private modules: ModuleContainer
   ) {}
+
+  @Get('entries')
+  getEntries(req: any) {
+    const type = req.query.type;
+    return debugWatcher.getEntries(type);
+  }
+
+  @Delete('entries')
+  clearEntries() {
+    debugWatcher.clear();
+    return { success: true };
+  }
 
   @Get('routes')
   getRoutes() {
@@ -21,11 +34,10 @@ export class DevToolsController {
 
   @Get('modules')
   getModules() {
-    // In a real implementation, we'd traverse the ModuleContainer
-    // For now we return simple stats
     return {
       count: this.modules['modules'].length, // accessing private prop for devtools
       globalProviders: this.modules.getGlobalProviders().size,
+      names: this.modules['modules'].map((m: any) => m.name),
     };
   }
 
@@ -42,5 +54,11 @@ export class DevToolsController {
 
 @CanxModule({
   controllers: [DevToolsController],
+  providers: [
+    {
+        provide: 'DebugWatcher',
+        useValue: debugWatcher
+    }
+  ]
 })
 export class DevToolsModule {}

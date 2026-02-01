@@ -12,9 +12,10 @@ export { Server, Server as CanxServer } from './core/Server';
 export { Router } from './core/Router';
 
 export { Canx, createApp, defineConfig } from './Application';
+export { Action } from './core/Action';
 export type { ServerConfig } from './types';
 export { ErrorHandler } from './core/ErrorHandler';
-export type { CanxRequest, CanxResponse, HttpMethod, CanxApplication } from './types';
+export type { CanxRequest, CanxResponse, HttpMethod, CanxApplication, CastType } from './types';
 // ============================================
 // Middleware Exports
 // ============================================
@@ -117,10 +118,7 @@ export {
   sessionAuth,
   sessionStore,
   DatabaseSessionDriver,
-} from './auth/Auth';
-
-// Authorization (Gates & Policies)
-export {
+  // Gates & Policies
   gate,
   defineGate,
   definePolicy,
@@ -134,11 +132,7 @@ export {
   Gate,
   UserGate,
   AuthorizationException,
-} from './auth/Gate';
-export type { Ability, Policy, PolicyClass, GateCallback } from './auth/Gate';
-
-// Auth Guards
-export {
+  // Guards
   authManager,
   initAuth,
   authMiddleware,
@@ -148,11 +142,23 @@ export {
   TokenGuard,
   JwtGuard,
   AuthManager,
-} from './auth/Guard';
-export type { AuthUser, GuardDriver, GuardConfig } from './auth/Guard';
+  // Social Auth
+  SocialManager,
+  GoogleProvider,
+  GithubProvider,
+} from './auth';
 
-// NOTE: OAuth, TwoFactor, and advanced Auth features should now be imported from 'canxjs/auth'
-// or their specific submodules to reduce bundle size.
+export type { 
+  Ability, 
+  Policy, 
+  PolicyClass, 
+  GateCallback,
+  AuthUser, 
+  GuardDriver, 
+  GuardConfig,
+  OAuthUser,
+  SocialProvider,
+} from './auth';
 
 // ============================================
 // API Versioning Exports
@@ -175,17 +181,10 @@ export type { VersioningConfig, VersionedRoute } from './utils/ApiVersioning';
 // ============================================
 // API Resources Exports
 // ============================================
-export { 
-  Resource as ApiResource, 
-  ResourceCollection as ApiResourceCollection, 
-  paginatedResource,
-  when as resourceWhen,
-  whenNotNull as resourceWhenNotNull,
-  mergeWhen as resourceMergeWhen,
-  resource as transformResource,
-  collection as transformCollection,
-} from './utils/ApiResource';
-export type { ResourceMeta as ApiResourceMeta, ResourceOptions, PaginatedData } from './utils/ApiResource';
+// ============================================
+// API Resources Exports
+// ============================================
+// Replaced by utils/Resource.ts (JsonResource)
 
 // ============================================
 // Tagged Cache Exports
@@ -210,7 +209,8 @@ export type { ConfigValue } from './config/ConfigManager';
 // Service Provider Exports
 // ============================================
 export { 
-  ServiceProvider as AppServiceProvider, 
+  ServiceProvider as AppServiceProvider,
+  ServiceProvider, 
   DeferredServiceProvider, 
   ApplicationKernel, 
   kernel, 
@@ -350,7 +350,7 @@ export {
   Scope,
   AutoWire,
 } from './container/Container';
-export type { ServiceProvider, ForwardRef } from './container/Container';
+export type { ForwardRef } from './container/Container';
 export { 
   requestScopeMiddleware,
   runInRequestContext,
