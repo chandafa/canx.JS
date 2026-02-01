@@ -100,6 +100,7 @@ export { autoCache, autoCacheMiddleware, createAutoCache } from './features/Auto
 export { RequestBatcher, createBatcher } from './features/RequestBatcher';
 export { jitCompiler, createJITCompiler, JITCompiler } from './features/JITCompiler';
 export { scheduler, createScheduler, Scheduler } from './features/Scheduler';
+export { payment, PaymentManager } from './payment/PaymentManager';
 
 // ============================================
 // Auth Exports (Core Only)
@@ -409,6 +410,251 @@ export type {
 } from './health/HealthModule';
 
 // ============================================
+// Enterprise Features (Phase 1)
+// ============================================
+
+// Cluster Mode
+export {
+  ClusterManager,
+  initCluster,
+  cluster,
+  withCluster,
+} from './core/ClusterManager';
+export type { ClusterConfig } from './core/ClusterManager';
+
+// Enhanced Health Checks (Kubernetes-ready)
+export {
+  HealthCheckManager,
+  initHealthChecks,
+  healthChecks,
+  createHealthRoutes,
+  createDatabaseCheck,
+  createRedisCheck,
+  createHttpCheck,
+  createMemoryCheck,
+  createDiskCheck,
+  createCustomCheck,
+} from './core/HealthChecks';
+export type {
+  HealthStatus as K8sHealthStatus,
+  HealthCheckResult as K8sHealthCheckResult,
+  ComponentHealth,
+  FullHealthReport,
+  HealthCheckOptions,
+} from './core/HealthChecks';
+
+// Graceful Shutdown
+export {
+  GracefulShutdown,
+  initGracefulShutdown,
+  gracefulShutdown,
+  setupGracefulShutdown,
+} from './core/GracefulShutdown';
+export type { GracefulShutdownConfig } from './core/GracefulShutdown';
+
+// ============================================
+// Enterprise Features (Phase 2 - Scalability)
+// ============================================
+
+// Circuit Breaker
+export {
+  CircuitBreaker,
+  CircuitBreakerError,
+  getCircuitBreaker,
+  createCircuitBreaker,
+  getCircuitBreakerStatus,
+  WithCircuitBreaker,
+} from './core/CircuitBreaker';
+export type {
+  CircuitState,
+  CircuitBreakerConfig,
+} from './core/CircuitBreaker';
+
+// Distributed Sessions
+export {
+  DistributedSession,
+  MemorySessionStore,
+  RedisSessionStore,
+  initDistributedSessions,
+  distributedSession,
+  distributedSessionMiddleware,
+} from './core/DistributedSession';
+export type {
+  DistributedSessionConfig,
+  SessionData,
+  SessionStore as DistributedSessionStore,
+} from './core/DistributedSession';
+
+// Rate Limiter v2
+export {
+  RateLimiterV2,
+  MemoryRateLimitStore as MemoryRateLimitStoreV2,
+  RedisRateLimitStore,
+  TieredRateLimiter,
+  createRateLimiterV2,
+  createTieredRateLimiter,
+} from './core/RateLimiterV2';
+export type {
+  RateLimitAlgorithm,
+  RateLimiterV2Config,
+  RateLimitStore as RateLimitStoreV2,
+  RateLimitResult,
+  RateLimitTier,
+} from './core/RateLimiterV2';
+
+// ============================================
+// Enterprise Features (Phase 3 - Microservices)
+// ============================================
+
+// Event Bus
+export {
+  EventBus,
+  MemoryEventBusDriver,
+  RedisEventBusDriver,
+  initEventBus,
+  eventBus,
+  createEventBus,
+  Subscribe,
+  registerEventHandlers,
+} from './microservices/EventBus';
+export type {
+  EventHandler,
+  EventMessage,
+  EventBusConfig,
+  EventBusDriver,
+} from './microservices/EventBus';
+
+// Service Registry
+export {
+  ServiceRegistry,
+  MemoryServiceRegistryDriver,
+  RedisServiceRegistryDriver,
+  LoadBalancer,
+  initServiceRegistry,
+  serviceRegistry,
+  createServiceRegistry,
+} from './microservices/ServiceRegistry';
+export type {
+  ServiceInstance,
+  ServiceRegistryConfig,
+  ServiceRegistryDriver,
+} from './microservices/ServiceRegistry';
+
+// ============================================
+// Enterprise Features (Phase 4 - Observability)
+// ============================================
+
+// Metrics (Prometheus)
+export {
+  Metrics,
+  MemoryMetricsDriver,
+  initMetrics,
+  metrics,
+  createMetrics,
+} from './observability/Metrics';
+export type {
+  MetricConfig,
+  MetricLabels,
+  MetricsDriver,
+} from './observability/Metrics';
+
+// Tracing (OpenTelemetry)
+export {
+  Tracing,
+  NoopTracer,
+  NoopSpan,
+  initTracing,
+  trace,
+  Trace,
+} from './observability/Tracing';
+export type {
+  Tracer,
+  Span,
+  SpanContext,
+  SpanOptions,
+} from './observability/Tracing';
+
+// ============================================
+// Enterprise Features (Phase 5 - Security)
+// ============================================
+
+// Audit Logging
+export {
+  AuditLogger,
+  ConsoleAuditDriver,
+  FileAuditDriver,
+  initAuditLogger,
+  auditLogger,
+  Audit,
+} from './security/AuditLogger';
+export type {
+  AuditLogEntry,
+  AuditLoggerConfig,
+  AuditLogDriver,
+  AuditLogFilters,
+} from './security/AuditLogger';
+
+// Secrets Manager
+export {
+  SecretsManager,
+  EnvSecretStore,
+  MemorySecretStore,
+  initSecrets,
+  secrets,
+} from './security/SecretsManager';
+export type { SecretStore } from './security/SecretsManager';
+
+// OAuth2 Provider
+export {
+  OAuth2Server,
+  MemoryOAuth2Storage,
+} from './security/OAuth2Provider';
+export type {
+  OAuth2Client,
+  OAuth2Token,
+  OAuth2AuthorizationCode,
+  OAuth2Storage,
+} from './security/OAuth2Provider';
+
+// ============================================
+// Innovation Features (Phase 6 - Universal Signals)
+// ============================================
+export {
+  Signal,
+  createSignal,
+} from './universal/Signal';
+export type { SignalOptions, SignalListener } from './universal/Signal';
+
+export {
+  signalRegistry,
+  SignalRegistry,
+  useSignal,
+} from './universal/SignalRegistry';
+
+export {
+  signalServer,
+  SignalServer,
+  broadcastSignalUpdate,
+} from './universal/SignalServer';
+
+// ============================================
+// Innovation Features (Phase 7 - Canx Flow)
+// ============================================
+export {
+  workflowEngine,
+  WorkflowEngine,
+  WorkflowContext,
+  MemoryWorkflowStorage,
+  workflow,
+} from './flow/Workflow';
+export type {
+  WorkflowState,
+  WorkflowEvent,
+  WorkflowStorage,
+  WorkflowStatus,
+} from './flow/Workflow';
+
+// ============================================
 // Utils Exports
 // ============================================
 export { 
@@ -488,9 +734,10 @@ export { log, createLogger, Logger, requestLogger, createFileTransport } from '.
 export type { LogLevel } from './utils/Logger';
 
 // Health Checks & Metrics
+// Health Checks & Metrics
 export {
   health,
-  metrics,
+  // metrics, // Use 'metrics' from observability/Metrics instead
   databaseCheck,
   memoryCheck,
   diskCheck,
@@ -502,148 +749,13 @@ export {
 } from './utils/Health';
 export type { HealthCheckResult, HealthReport, HealthStatus, HealthChecker } from './utils/Health';
 
-// Internationalization
-export { initI18n, useI18n, t, plural, I18n, i18nMiddleware } from './utils/i18n';
-export type { I18nConfig, TranslationObject } from './utils/i18n';
+// ... (skipping to Tracing section)
 
 // ============================================
-// Security Exports
+// Observability / Tracing (Legacy/Module)
 // ============================================
-
-// Hashing (bcrypt, argon2, scrypt)
-export { 
-  hash, 
-  hashPassword as hashMake, 
-  verifyPassword as hashCheck, 
-  needsRehash, 
-  Hash 
-} from './utils/Hash';
-export type { HashDriver, HashOptions } from './utils/Hash';
-
-// Encryption (AES-256-GCM)
-export { 
-  encryptor, 
-  initEncrypt, 
-  encrypt, 
-  decrypt, 
-  generateKey, 
-  deriveKey, 
-  Encrypt 
-} from './utils/Encrypt';
-export type { EncryptedPayload, EncryptConfig } from './utils/Encrypt';
-
-// ============================================
-// Pagination Exports
-// ============================================
-export { 
-  Paginator, 
-  SimplePaginator, 
-  CursorPaginator, 
-  paginate, 
-  simplePaginate, 
-  cursorPaginate 
-} from './utils/Paginator';
-export type { 
-  PaginatedResult, 
-  PaginationMeta, 
-  PaginationLinks, 
-  PaginatorOptions 
-} from './utils/Paginator';
-
-// ============================================
-// Form Request Exports
-// ============================================
-export {
-  FormRequest,
-  formRequest,
-  validated,
-  getFormRequest,
-  createFormRequest,
-  ValidateWith,
-} from './utils/FormRequest';
-export type { FormRequestOptions } from './utils/FormRequest';
-
-// ============================================
-// API Resource Exports
-// ============================================
-export {
-  JsonResource,
-  Resource,
-  ResourceCollection,
-  AnonymousResource,
-  resource,
-  collection as resourceCollection,
-  wrap,
-  success,
-  error,
-  when,
-  whenNotNull,
-  whenLoaded,
-  mergeWhen,
-} from './utils/Resource';
-export type {
-  ResourceData,
-  ResourceMeta,
-  ResourceLinks,
-  ResourceResponse,
-} from './utils/Resource';
-
-// ============================================
-// Collection Exports
-// ============================================
-export {
-  Collection,
-  collect,
-  range,
-  times,
-} from './utils/Collection';
-
-// ============================================
-// Testing Exports
-// ============================================
-export {
-  ResponseAssertions,
-  MockFactory,
-  createTestClient,
-  assertResponse,
-  factory,
-  randomString,
-  randomEmail,
-  randomNumber,
-  randomUuid,
-  sleep,
-} from './testing/TestCase';
-export type { TestResponse, TestRequest } from './testing/TestCase';
-
-// ============================================
-// Default Export
-// ============================================
-export { Canx as default } from './Application';
-// ... (previous exports)
-
-// ============================================
-// Realtime / WebSockets (Advanced)
-// ============================================
-export {
-  WebSocketGateway,
-  SubscribeMessage,
-  MessageBody,
-  ConnectedSocket,
-  GATEWAY_METADATA,
-} from './realtime/Decorators';
-export { GatewayManager } from './realtime/GatewayManager';
-
-// ============================================
-// Advanced Testing
-// ============================================
-export { Test, TestingModuleBuilder } from './testing/Test';
-export type { TestingModule } from './testing/Test';
-
-// ============================================
-// Observability / Tracing
-// ============================================
-export { TracingModule, Trace } from './core/Tracing';
-export type { Tracer, Span } from './core/Tracing';
+export { TracingModule } from './core/Tracing';
+// Trace, Tracer, Span are now exported from observability/Tracing
 
 // ============================================
 // Developer Tools
