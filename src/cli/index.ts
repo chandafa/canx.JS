@@ -15,6 +15,8 @@ import { HelpCommand } from './commands/HelpCommand';
 import { ListCommand } from './commands/ListCommand';
 import { TinkerCommand } from './commands/TinkerCommand';
 import { MakeCrudCommand } from './commands/MakeCrudCommand';
+import { DownCommand } from './commands/DownCommand';
+import { UpCommand } from './commands/UpCommand';
 
 export class Console {
   private commands: Map<string, Command> = new Map();
@@ -31,6 +33,8 @@ export class Console {
       this.register(new ScheduleRunCommand());
       this.register(new OptimizeCommand());
       this.register(new TinkerCommand());
+      this.register(new DownCommand());
+      this.register(new UpCommand());
       
       // Generators
       this.register(new MakeGenerator('controller'));

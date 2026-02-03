@@ -102,11 +102,16 @@ export interface S3DriverConfig {
   urlPrefix?: string;
 }
 
+export interface GCSDriverConfig extends S3DriverConfig {
+  // GCS specific overrides if any, otherwise identical to S3
+}
+
 export interface StorageConfig {
   default?: string;
   disks?: {
     local?: LocalDriverConfig;
     s3?: S3DriverConfig;
-    [key: string]: LocalDriverConfig | S3DriverConfig | undefined;
+    gcs?: GCSDriverConfig;
+    [key: string]: LocalDriverConfig | S3DriverConfig | GCSDriverConfig | undefined;
   };
 }

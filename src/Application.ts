@@ -168,6 +168,13 @@ export class Canx implements CanxApplication {
   }
 
   /**
+   * Get the internal server instance
+   */
+  getServer(): Server | null {
+    return this.server;
+  }
+
+  /**
    * Get router for chaining
    */
   get(path: string, ...handlers: any[]): this { this.router.get(path, ...handlers); return this; }
@@ -218,6 +225,47 @@ export function createApp(config?: ServerConfig): Canx {
  */
 export function defineConfig<T extends Record<string, any>>(config: T): T {
   return config;
+}
+
+// Alias for consistency with NestJS-style naming
+export { Canx as Application };
+
+/**
+ * Application Configuration for module-based bootstrap
+ */
+interface ApplicationConfig extends ServerConfig {
+  rootModule?: any;
+}
+
+/**
+ * Create a new CanxJS application instance with module support
+ * This is a NestJS-style factory function
+ */
+export function createApplication(config?: ApplicationConfig): Canx {
+  const app = new Canx(config);
+  
+  // If rootModule is provided, bootstrap it
+  if (config?.rootModule) {
+    const meta = Reflect.getMetadata('module:metadata', config.rootModule);
+    if (meta) {
+      // Register controllers from the module
+      if (meta.controllers) {
+        for (const ControllerClass of meta.controllers) {
+          app.controller(ControllerClass);
+        }
+      }
+      // Register providers to container
+      if (meta.providers) {
+        for (const provider of meta.providers) {
+          if (typeof provider === 'function') {
+            container.bind(provider, provider);
+          }
+        }
+      }
+    }
+  }
+  
+  return app;
 }
 
 export default Canx;

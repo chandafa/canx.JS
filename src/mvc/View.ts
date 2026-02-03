@@ -285,5 +285,19 @@ export async function viewExists(name: string): Promise<boolean> {
   return false;
 }
 
-export default { jsx, jsxs, Fragment, html, render, renderPage, createLayout, View, view, viewExists };
+/**
+ * Check if a view exists and render it if so
+ */
+export async function viewIfExists(
+  name: string,
+  props: Record<string, any> = {},
+  options?: { title?: string; meta?: Record<string, string>; head?: string }
+): Promise<string | null> {
+    if (await viewExists(name)) {
+        return await view(name, props, options);
+    }
+    return null;
+}
+
+export default { jsx, jsxs, Fragment, html, render, renderPage, createLayout, View, view, viewExists, viewIfExists };
 

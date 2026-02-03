@@ -1,7 +1,92 @@
 import { join } from 'path';
-import { existsSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync, readFileSync } from 'fs';
 import pc from 'picocolors';
 import type { Command } from '../Command';
+
+// Default paths can be overridden via canx.config.ts
+interface CanxPaths {
+  controllers?: string;
+  models?: string;
+  middlewares?: string;
+  migrations?: string;
+  seeders?: string;
+  requests?: string;
+  resources?: string;
+  policies?: string;
+  services?: string;
+  events?: string;
+  jobs?: string;
+  notifications?: string;
+  mails?: string;
+  actions?: string;
+  dtos?: string;
+  providers?: string;
+  commands?: string;
+  microservices?: string;
+  handlers?: string;
+}
+
+const DEFAULT_PATHS: Required<CanxPaths> = {
+  controllers: 'src/controllers',
+  models: 'src/models',
+  middlewares: 'src/middlewares',
+  migrations: 'src/database/migrations',
+  seeders: 'src/database/seeders',
+  requests: 'src/requests',
+  resources: 'src/resources',
+  policies: 'src/policies',
+  services: 'src/services',
+  events: 'src/events',
+  jobs: 'src/jobs',
+  notifications: 'src/notifications',
+  mails: 'src/mails',
+  actions: 'src/actions',
+  dtos: 'src/dtos',
+  providers: 'src/providers',
+  commands: 'src/commands',
+  microservices: 'src/microservices',
+  handlers: 'src/handlers',
+};
+
+/**
+ * Load paths configuration from canx.config.ts or use defaults.
+ * This allows flexible folder structure like NestJS/Express.
+ */
+function loadPaths(cwd: string): Required<CanxPaths> {
+  const configPaths = [
+    join(cwd, 'canx.config.ts'),
+    join(cwd, 'canx.config.js'),
+    join(cwd, 'canx.config.json'),
+  ];
+
+  for (const configPath of configPaths) {
+    if (existsSync(configPath)) {
+      try {
+        if (configPath.endsWith('.json')) {
+          const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+          return { ...DEFAULT_PATHS, ...config.paths };
+        }
+        // For .ts/.js files, we can't easily import dynamically
+        // So we check for a .paths.json file as fallback
+      } catch {
+        // Ignore parse errors, use defaults
+      }
+    }
+  }
+
+  // Check for .paths.json (simple JSON config)
+  const jsonConfig = join(cwd, '.canx-paths.json');
+  if (existsSync(jsonConfig)) {
+    try {
+      const paths = JSON.parse(readFileSync(jsonConfig, 'utf-8'));
+      return { ...DEFAULT_PATHS, ...paths };
+    } catch {
+      // Ignore
+    }
+  }
+
+  return DEFAULT_PATHS;
+}
 
 export class MakeCommand implements Command {
   signature = 'make:<type> <name>';
@@ -60,93 +145,95 @@ export class MakeGenerator implements Command {
         }
 
         const cwd = process.cwd();
+        const paths = loadPaths(cwd);
         let content = '';
         let targetPath = '';
 
         switch(this.type) {
             case 'controller':
                 content = this.getController(name);
-                targetPath = join(cwd, 'src/controllers', `${name}.ts`);
+                targetPath = join(cwd, paths.controllers, `${name}.ts`);
                 break;
             case 'model':
                 content = this.getModel(name);
-                targetPath = join(cwd, 'src/models', `${name}.ts`);
+                targetPath = join(cwd, paths.models, `${name}.ts`);
                 break;
             case 'middleware':
                 content = this.getMiddleware(name);
-                targetPath = join(cwd, 'src/middlewares', `${name}.ts`);
+                targetPath = join(cwd, paths.middlewares, `${name}.ts`);
                 break;
             case 'migration':
                 const timestamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
                 content = this.getMigration(name);
-                targetPath = join(cwd, 'src/database/migrations', `${timestamp}_${name}.ts`);
+                targetPath = join(cwd, paths.migrations, `${timestamp}_${name}.ts`);
                 break;
             case 'seeder':
                 content = this.getSeeder(name);
-                targetPath = join(cwd, 'src/database/seeders', `${name}.ts`);
+                targetPath = join(cwd, paths.seeders, `${name}.ts`);
                 break;
             case 'request':
                 content = this.getRequest(name);
-                targetPath = join(cwd, 'src/requests', `${name}.ts`);
+                targetPath = join(cwd, paths.requests, `${name}.ts`);
                 break;
             case 'resource':
                 content = this.getResource(name);
-                targetPath = join(cwd, 'src/resources', `${name}.ts`);
+                targetPath = join(cwd, paths.resources, `${name}.ts`);
                 break;
             case 'policy':
                 content = this.getPolicy(name);
-                targetPath = join(cwd, 'src/policies', `${name}.ts`);
+                targetPath = join(cwd, paths.policies, `${name}.ts`);
                 break;
             case 'service':
                 content = this.getService(name);
-                targetPath = join(cwd, 'src/services', `${name}.ts`);
+                targetPath = join(cwd, paths.services, `${name}.ts`);
                 break;
             case 'event':
                 content = this.getEvent(name);
-                targetPath = join(cwd, 'src/events', `${name}.ts`);
+                targetPath = join(cwd, paths.events, `${name}.ts`);
                 break;
             case 'job':
                 content = this.getJob(name);
-                targetPath = join(cwd, 'src/jobs', `${name}.ts`);
+                targetPath = join(cwd, paths.jobs, `${name}.ts`);
                 break;
             case 'notification':
                 content = this.getNotification(name);
-                targetPath = join(cwd, 'src/notifications', `${name}.ts`);
+                targetPath = join(cwd, paths.notifications, `${name}.ts`);
                 break;
             case 'mail':
                 content = this.getMail(name);
-                targetPath = join(cwd, 'src/mails', `${name}.ts`);
+                targetPath = join(cwd, paths.mails, `${name}.ts`);
                 break;
             // New Generators
             case 'action':
                 content = this.getAction(name);
-                targetPath = join(cwd, 'src/actions', `${name}.ts`);
+                targetPath = join(cwd, paths.actions, `${name}.ts`);
                 break;
             case 'dto':
                 content = this.getDto(name);
-                targetPath = join(cwd, 'src/dtos', `${name}.ts`);
+                targetPath = join(cwd, paths.dtos, `${name}.ts`);
                 break;
             case 'provider':
                 content = this.getProvider(name);
-                targetPath = join(cwd, 'src/providers', `${name}.ts`);
+                targetPath = join(cwd, paths.providers, `${name}.ts`);
                 break;
             case 'command':
                 content = this.getCommand(name);
-                targetPath = join(cwd, 'src/commands', `${name}.ts`);
+                targetPath = join(cwd, paths.commands, `${name}.ts`);
                 break;
             case 'microservice':
                 content = this.getMicroservice(name);
-                targetPath = join(cwd, 'src/microservices', `${name}.ts`);
+                targetPath = join(cwd, paths.microservices, `${name}.ts`);
                 break;
             case 'cqrs-command':
                 content = this.getCqrsCommand(name);
-                targetPath = join(cwd, 'src/commands', `${name}.ts`);
+                targetPath = join(cwd, paths.commands, `${name}.ts`);
                 break;
             case 'cqrs-handler':
                 content = this.getCqrsHandler(name);
-                targetPath = join(cwd, 'src/handlers', `${name}.ts`);
+                targetPath = join(cwd, paths.handlers, `${name}.ts`);
                 break;
         }
+
 
         if (filesExists(targetPath)) {
             console.error(pc.red(`${this.type} "${name}" already exists.`));

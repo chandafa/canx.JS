@@ -10,15 +10,15 @@ import type { CanxRequest, CanxResponse } from '../types';
 // Types
 // ============================================
 
-export interface TestResponse {
+export interface HttpTestResponse {
   status: number;
   body: any;
   text: string;
   headers: Record<string, string>;
-  assertStatus(status: number): TestResponse;
-  assertJson(subset: object): TestResponse;
-  assertText(text: string): TestResponse;
-  assertHeader(key: string, value?: string): TestResponse;
+  assertStatus(status: number): HttpTestResponse;
+  assertJson(subset: object): HttpTestResponse;
+  assertText(text: string): HttpTestResponse;
+  assertHeader(key: string, value?: string): HttpTestResponse;
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD';
@@ -54,42 +54,42 @@ export class HttpTest {
   /**
    * Make a GET request
    */
-  async get(path: string): Promise<TestResponse> {
+  async get(path: string): Promise<HttpTestResponse> {
     return this.request('GET', path);
   }
 
   /**
    * Make a POST request
    */
-  async post(path: string, body?: any): Promise<TestResponse> {
+  async post(path: string, body?: any): Promise<HttpTestResponse> {
     return this.request('POST', path, body);
   }
 
   /**
    * Make a PUT request
    */
-  async put(path: string, body?: any): Promise<TestResponse> {
+  async put(path: string, body?: any): Promise<HttpTestResponse> {
     return this.request('PUT', path, body);
   }
 
   /**
    * Make a PATCH request
    */
-  async patch(path: string, body?: any): Promise<TestResponse> {
+  async patch(path: string, body?: any): Promise<HttpTestResponse> {
     return this.request('PATCH', path, body);
   }
 
   /**
    * Make a DELETE request
    */
-  async delete(path: string, body?: any): Promise<TestResponse> {
+  async delete(path: string, body?: any): Promise<HttpTestResponse> {
     return this.request('DELETE', path, body);
   }
 
   /**
    * Make a generic request
    */
-  async request(method: HttpMethod, path: string, body?: any): Promise<TestResponse> {
+  async request(method: HttpMethod, path: string, body?: any): Promise<HttpTestResponse> {
     const url = `http://localhost${path}`;
     const options: RequestInit = {
       method,
@@ -123,7 +123,7 @@ export class HttpTest {
     const headers: Record<string, string> = {};
     res.headers.forEach((v, k) => headers[k] = v);
 
-    const testRes: TestResponse = {
+    const testRes: HttpTestResponse = {
       status: res.status,
       body: json,
       text,

@@ -227,6 +227,29 @@ my-app/
 - [Middleware](http://docs-canxjs.netlify.app/docs/middleware)
 - [HotWire](http://docs-canxjs.netlify.app/docs/hotwire)
 
+## Optional Dependencies
+
+CanxJS is designed to be lightweight. Some features require additional packages:
+
+| Feature     | Required Package      | Install Command      |
+| ----------- | --------------------- | -------------------- |
+| PostgreSQL  | `pg`                  | `bun add pg`         |
+| S3 Storage  | Built-in (uses fetch) | -                    |
+| SMTP Email  | `nodemailer`          | `bun add nodemailer` |
+| Redis Cache | `ioredis`             | `bun add ioredis`    |
+
+## Official Packages
+
+Extend CanxJS with official packages:
+
+| Package                                                            | Description                                        | Install                    |
+| ------------------------------------------------------------------ | -------------------------------------------------- | -------------------------- |
+| [@canxjs/citadel](https://www.npmjs.com/package/@canxjs/citadel)   | API Token Authentication (like Laravel Sanctum)    | `bun add @canxjs/citadel`  |
+| [@canxjs/dominion](https://www.npmjs.com/package/@canxjs/dominion) | Role-Based Access Control (like Spatie Permission) | `bun add @canxjs/dominion` |
+| [@canxjs/blocks](https://www.npmjs.com/package/@canxjs/blocks)     | Modular Architecture (HMVC)                        | `bun add @canxjs/blocks`   |
+| [@canxjs/payment](https://www.npmjs.com/package/@canxjs/payment)   | Midtrans Payment Gateway                           | `bun add @canxjs/payment`  |
+| [@canxjs/echo](https://www.npmjs.com/package/@canxjs/echo)         | Real-time Event Broadcasting                       | `bun add @canxjs/echo`     |
+
 ## License
 
 MIT © CanxJS Team

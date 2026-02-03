@@ -35,6 +35,14 @@ class StorageManager {
         this.registerDriver('s3', new S3Driver(config.disks!.s3!));
       });
     }
+
+    // Register GCS driver if configured
+    if (config.disks?.gcs) {
+      // Lazy load GCS driver
+      import('./drivers/GCSDriver').then(({ GCSDriver }) => {
+        this.registerDriver('gcs', new GCSDriver(config.disks!.gcs!));
+      });
+    }
   }
 
   /**

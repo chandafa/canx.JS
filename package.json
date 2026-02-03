@@ -1,6 +1,6 @@
 {
   "name": "canxjs",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "description": "Ultra-fast async-first MVC backend framework for Bun runtime",
   "type": "module",
   "main": "./dist/src/index.js",
@@ -46,6 +46,26 @@
     "./cqrs": {
       "import": "./dist/src/cqrs/index.js",
       "types": "./dist/src/cqrs/index.d.ts"
+    },
+    "./testing": {
+      "import": "./dist/src/testing/index.js",
+      "types": "./dist/src/testing/index.d.ts"
+    },
+    "./search": {
+      "import": "./dist/src/search/index.js",
+      "types": "./dist/src/search/index.d.ts"
+    },
+    "./storage": {
+      "import": "./dist/src/storage/index.js",
+      "types": "./dist/src/storage/index.d.ts"
+    },
+    "./vite": {
+      "import": "./dist/src/vite/index.js",
+      "types": "./dist/src/vite/index.d.ts"
+    },
+    "./inertia": {
+      "import": "./dist/src/inertia/index.js",
+      "types": "./dist/src/inertia/index.d.ts"
     },
     "./graphql": {
       "import": "./dist/src/graphql/index.js",

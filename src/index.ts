@@ -7,15 +7,15 @@
 // ============================================
 // Core Exports
 // ============================================
-// Core Exports
+
 export { Server, Server as CanxServer } from './core/Server';
 export { Router } from './core/Router';
 
-export { Canx, createApp, defineConfig } from './Application';
+export { Canx, createApp, defineConfig, createApplication, Application } from './Application';
 export { Action } from './core/Action';
 export type { ServerConfig } from './types';
 export { ErrorHandler } from './core/ErrorHandler';
-export type { CanxRequest, CanxResponse, HttpMethod, CanxApplication, CastType } from './types';
+export type { CanxRequest, CanxResponse, HttpMethod, CanxApplication, CastType, NextFunction } from './types';
 // ============================================
 // Middleware Exports
 // ============================================
@@ -55,6 +55,30 @@ export {
 } from './mvc/Controller';
 export { Model, QueryBuilderImpl, initDatabase, closeDatabase, query, execute } from './mvc/Model';
 export { jsx, jsxs, Fragment, html, render, renderPage, createLayout, View, view, viewExists } from './mvc/View';
+
+// Model Observers
+export {
+  Observer,
+  OnCreating,
+  OnCreated,
+  OnUpdating,
+  OnUpdated,
+  OnSaving,
+  OnSaved,
+  OnDeleting,
+  OnDeleted,
+  OnRestoring,
+  OnRestored,
+  OnRetrieved,
+  OnReplicating,
+  defineObserver,
+  registerModelObserver,
+  dispatchModelEvent,
+  withObservers,
+  getRegisteredObservers,
+  clearObservers,
+} from './mvc/ModelObserver';
+export type { ModelLifecycleEvent, ModelEventData, ModelEventHandler, ObserverDefinition } from './mvc/ModelObserver';
 
 // ============================================
 // Parameter Decorators
@@ -101,6 +125,33 @@ export { RequestBatcher, createBatcher } from './features/RequestBatcher';
 export { jitCompiler, createJITCompiler, JITCompiler } from './features/JITCompiler';
 export { scheduler, createScheduler, Scheduler } from './features/Scheduler';
 export { payment, PaymentManager } from './payment/PaymentManager';
+
+// Queue & Jobs
+export { queue, createQueue, Queue, MemoryDriver as QueueMemoryDriver, RedisDriver as QueueRedisDriver } from './queue/Queue';
+export type { QueueConfig, QueueDriver, Job } from './queue/Queue';
+export {
+  chain,
+  chainJobs,
+  JobChain,
+  continueChain,
+  failChain,
+  isChainedJob,
+  getChainInfo,
+} from './queue/JobChain';
+export type { ChainableJob, ChainOptions, PendingChain } from './queue/JobChain';
+export {
+  batch,
+  JobBatch,
+  getBatch,
+  cancelBatch,
+  completeBatchJob,
+  failBatchJob,
+  isBatchedJob,
+  getBatchInfo,
+  listBatches,
+  clearCompletedBatches,
+} from './queue/JobBatch';
+export type { BatchableJob, BatchOptions, BatchInfo, BatchProgress, BatchStatus, PendingBatch } from './queue/JobBatch';
 
 // ============================================
 // Auth Exports (Core Only)
@@ -179,9 +230,6 @@ export type { VersioningConfig, VersionedRoute } from './utils/ApiVersioning';
 // NOTE: OpenAPI/Swagger, CQRS, Microservices, and GraphQL have been moved to their own entry points.
 // Please import them from 'canxjs/microservices', 'canxjs/cqrs', 'canxjs/graphql', etc.
 
-// ============================================
-// API Resources Exports
-// ============================================
 // ============================================
 // API Resources Exports
 // ============================================
@@ -299,11 +347,8 @@ export { Schema, migrator, defineMigration } from './database/Migration';
 export { seeder, fake, factory as seederFactory, defineSeeder } from './database/Seeder';
 
 // ============================================
-// Queue Exports
+// Queue Exports (Additional UI)
 // ============================================
-export { queue, createQueue } from './queue/Queue';
-export { RedisDriver } from './queue/drivers/RedisDriver';
-export { MemoryDriver } from './queue/drivers/MemoryDriver';
 export { QueueController } from './queue/ui/QueueController';
 
 // ============================================
@@ -311,14 +356,18 @@ export { QueueController } from './queue/ui/QueueController';
 // ============================================
 export { channel, createChannel } from './realtime/Channel';
 export { ws, createWebSocketServer, WebSocketServer } from './realtime/WebSocket';
+export {
+  broadcast,
+  broadcasting,
+  initBroadcast,
+  BroadcastManager,
+  PusherDriver,
+  AblyDriver,
+  BroadcastableEvent,
+} from './realtime/Broadcasting';
+export type { BroadcastEvent, BroadcastResult, PusherConfig, AblyConfig } from './realtime/Broadcasting';
 
-// ============================================
-// Storage Exports
-// ============================================
-export { storage, initStorage, handleUpload, handleMultipleUploads } from './storage/Storage';
-export { LocalDriver } from './storage/drivers/LocalDriver';
-export { S3Driver } from './storage/drivers/S3Driver';
-export type { StorageDriver, StorageConfig, FileMetadata } from './storage/drivers/types';
+
 
 // ============================================
 // Events Exports
@@ -332,19 +381,69 @@ export { initMail, mail, sendMail, Mailer, MailBuilder } from './notifications/M
 export { notifications, notify, notifyMany, Notification, makeNotifiable } from './notifications/Notification';
 export type { MailMessage, MailConfig, MailAddress, MailAttachment } from './notifications/Mail';
 export type { Notifiable, NotificationChannel } from './notifications/Notification';
+export { 
+  sms, 
+  initSms, 
+  sendSms, 
+  SmsManager, 
+  SmsChannel, 
+  TwilioDriver, 
+  VonageDriver 
+} from './notifications/channels/SmsChannel';
+export type { SmsMessage, SmsResult, TwilioConfig, VonageConfig } from './notifications/channels/SmsChannel';
+
+// ============================================
+// Internationalization (i18n) Exports
+// ============================================
+export { Translator, translator } from './i18n/Translator';
+export { localizationMiddleware } from './i18n/LocalizationMiddleware';
+export { __, trans, trans_choice } from './i18n/helpers';
+
+// ============================================
+// Adapter Exports (Inertia)
+// ============================================
+export { InertiaManager, inertiaManager } from './inertia/InertiaManager';
+export { inertiaMiddleware } from './inertia/InertiaMiddleware';
+export type { InertiaConfig } from './inertia/InertiaManager';
+
+// ============================================
+// Frontend Integration Exports
+// ============================================
+export { Vite, viteManager } from './vite/Vite';
+export { vite, vite_react_refresh, vite_asset } from './vite/helpers';
+
+// ============================================
+// Search (Scout) Exports
+// ============================================
+export { Scout, searchManager, SearchManager } from './search/SearchManager';
+export { Search, search } from './search/Searchable';
+export { SearchBuilder, type SearchEngine } from './search/engines/Engine';
+export { DatabaseEngine } from './search/engines/DatabaseEngine';
+
+// ============================================
+// Storage Exports
+// ============================================
+// ============================================
+// Storage Exports
+// ============================================
+export { storage, initStorage, handleUpload, handleMultipleUploads } from './storage/Storage';
+export { S3Driver } from './storage/drivers/S3Driver';
+export { GCSDriver } from './storage/drivers/GCSDriver';
+export { LocalDriver } from './storage/drivers/LocalDriver';
+export type { StorageDriver, StorageConfig, FileMetadata } from './storage/drivers/types';
 
 // ============================================
 // Container / DI Exports
 // ============================================
-export { 
-  container, 
-  bind, 
-  singleton, 
-  resolve, 
-  Injectable, 
-  Inject, 
-  Container, 
-  ScopedContainer, 
+export {
+  container,
+  bind,
+  singleton,
+  resolve,
+  Injectable,
+  Inject,
+  Container,
+  ScopedContainer,
   containerMiddleware,
   forwardRef,
   isForwardRef,
@@ -363,6 +462,8 @@ export {
 export type { InjectableOptions } from './container/Scope';
 
 // NOTE: GraphQL module has been moved to 'canxjs/graphql'.
+
+
 
 
 // ============================================
@@ -451,6 +552,17 @@ export {
   setupGracefulShutdown,
 } from './core/GracefulShutdown';
 export type { GracefulShutdownConfig } from './core/GracefulShutdown';
+
+// Maintenance Mode
+export {
+  MaintenanceManager,
+  initMaintenance,
+  maintenance,
+  isDownForMaintenance,
+  maintenanceMiddleware,
+  preCheckMaintenance,
+} from './core/MaintenanceMode';
+export type { MaintenancePayload, MaintenanceConfig, MaintenanceMiddlewareOptions } from './core/MaintenanceMode';
 
 // ============================================
 // Enterprise Features (Phase 2 - Scalability)
@@ -687,7 +799,9 @@ export {
   createHttpTest,
   TestCase
 } from './testing/TestHelper';
-export type { TestResponse as HelperTestResponse } from './testing/TestHelper';
+export type { HttpTestResponse as HelperTestResponse } from './testing/TestHelper';
+export { browse, Browser, Chrome } from './testing/index';
+export type { BrowserConfig } from './testing/index';
 // Utils - Request/Response
 export { ResponseBuilder, response } from './utils/Response';
 export { RequestParser, parseRequest } from './utils/Request';
@@ -733,7 +847,6 @@ export {
 export { log, createLogger, Logger, requestLogger, createFileTransport } from './utils/Logger';
 export type { LogLevel } from './utils/Logger';
 
-// Health Checks & Metrics
 // Health Checks & Metrics
 export {
   health,

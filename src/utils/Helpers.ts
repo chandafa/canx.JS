@@ -21,9 +21,8 @@ export { env };
 
 // 3. Config Helper (Simple env wrapper or config file loader)
 export function config(key: string, defaultValue?: any): any {
-    // Basic impl: Env var + defaults? 
-    // Or access ConfigManager if it exists (it was in index exports).
-    // Let's assume Env for now or TODO
+    // Config helper uses environment variables as the primary source.
+    // For complex configuration, use the ConfigManager from index exports.
     return env(key, defaultValue);
 }
 

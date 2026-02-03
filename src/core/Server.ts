@@ -222,6 +222,14 @@ export function createCanxResponse(): CanxResponse {
       });
     },
 
+    inertia: async (component: string, props: Record<string, any> = {}) => {
+        // This will be overridden by InertiaMiddleware if installed
+        // Fallback implementation: Just return JSON
+        return new Response(JSON.stringify({ component, props }), {
+            headers: { 'Content-Type': 'application/json' }
+        });
+    },
+
     async file(path: string): Promise<Response> {
       const file = Bun.file(path);
       const exists = await file.exists();

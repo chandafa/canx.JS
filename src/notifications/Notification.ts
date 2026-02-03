@@ -215,6 +215,7 @@ class NotificationSender {
 
 export function makeNotifiable<T extends { new(...args: any[]): {} }>(Base: T) {
   return class extends Base implements Notifiable {
+    // Properties must be provided by the base class
     id!: string | number;
     email?: string;
     phone?: string;
@@ -235,6 +236,7 @@ export function makeNotifiable<T extends { new(...args: any[]): {} }>(Base: T) {
     }
   };
 }
+
 
 // ============================================
 // Sample Notifications

@@ -66,6 +66,13 @@ export interface CanxRequest {
   id: string;
   /** Authenticated user (set by auth middleware) */
   user?: unknown;
+
+  /** Localization: Current Locale */
+  locale?: string;
+  /** Localization: Translate Key */
+  t?: (key: string, replace?: Record<string, any>) => string;
+  /** Localization: Get Locale */
+  getLocale?: () => string;
 }
 
 export interface CanxResponse {
@@ -103,6 +110,9 @@ export interface CanxResponse {
   hotwire: (content: string, options?: { target: string; action?: 'replace' | 'update' | 'prepend' | 'append' | 'remove' | 'after' | 'before' }) => Response;
   /** Whether headers have been sent */
   headersSent: boolean;
+  
+  /** Inertia.js Response */
+  inertia: (component: string, props?: Record<string, any>) => Promise<Response>;
 }
 
 export interface CookieOptions {

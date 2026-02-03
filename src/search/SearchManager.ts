@@ -1,18 +1,18 @@
-import type { SearchDriver } from './types';
-import { DatabaseSearchDriver } from './drivers/DatabaseSearchDriver';
+import { SearchEngine } from './engines/Engine';
+import { DatabaseEngine } from './engines/DatabaseEngine';
 
 export class SearchManager {
-  private drivers: Map<string, SearchDriver> = new Map();
+  private drivers: Map<string, SearchEngine> = new Map();
   private defaultDriver: string = 'database';
 
   constructor() {
-    this.register('database', new DatabaseSearchDriver());
+    this.register('database', new DatabaseEngine());
   }
 
   /**
    * Register a new custom driver
    */
-  register(name: string, driver: SearchDriver): this {
+  register(name: string, driver: SearchEngine): this {
     this.drivers.set(name, driver);
     return this;
   }
@@ -20,12 +20,12 @@ export class SearchManager {
   /**
    * Get a driver instance
    */
-  driver(name?: string): SearchDriver {
+  engine(name?: string): SearchEngine {
     const driverName = name || this.defaultDriver;
     const driver = this.drivers.get(driverName);
     
     if (!driver) {
-      throw new Error(`Search driver [${driverName}] is not defined.`);
+      throw new Error(`Search engine [${driverName}] is not defined.`);
     }
     
     return driver;
@@ -41,4 +41,5 @@ export class SearchManager {
 }
 
 export const searchManager = new SearchManager();
-export default searchManager;
+export const Scout = searchManager;
+

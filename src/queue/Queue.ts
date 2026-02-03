@@ -44,8 +44,9 @@ export class Queue {
   /**
    * Dispatch a job immediately
    */
-  async dispatch(name: string, data: unknown = {}): Promise<string> {
-    return this.driver.push({ name, data, delay: 0, maxAttempts: 3, scheduledAt: Date.now() });
+  async dispatch(name: string, data: unknown = {}, options: { delay?: number; queue?: string } = {}): Promise<string> {
+    const delay = options.delay || 0;
+    return this.driver.push({ name, data, delay, maxAttempts: 3, scheduledAt: Date.now() + delay });
   }
 
   /**
