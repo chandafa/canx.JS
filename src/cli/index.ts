@@ -90,15 +90,35 @@ export class Console {
     const flags: Record<string, any> = {};
     const commandArgs: string[] = [];
 
-    for (const arg of params) {
-      if (arg.startsWith('--')) {
-        const [key, val] = arg.slice(2).split('=');
-        flags[key] = val || true;
-      } else if (arg.startsWith('-')) {
-         flags[arg.slice(1)] = true;
-      } else {
-        commandArgs.push(arg);
-      }
+    // Enhanced flag parser to support space-separated flags (--flag value)
+    for (let i = 0; i < params.length; i++) {
+        const arg = params[i];
+        
+        if (arg.startsWith('--')) {
+            // Case: --flag or --flag=value
+            if (arg.includes('=')) {
+                const [key, val] = arg.slice(2).split('=');
+                flags[key] = val;
+            } else {
+                // Case: --flag value OR --flag (boolean)
+                const key = arg.slice(2);
+                const nextArg = params[i + 1];
+                
+                // If next arg exists and is NOT a flag, consume it as value
+                if (nextArg && !nextArg.startsWith('-')) {
+                    flags[key] = nextArg;
+                    i++; // Skip next arg
+                } else {
+                    flags[key] = true;
+                }
+            }
+        } else if (arg.startsWith('-')) {
+             // Short flag -x
+             flags[arg.slice(1)] = true;
+        } else {
+             // Positional arg
+             commandArgs.push(arg);
+        }
     }
 
     try {

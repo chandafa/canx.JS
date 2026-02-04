@@ -517,10 +517,17 @@ export class Server {
             if (this.config.static) {
               const url = new URL(req.url);
               if (url.pathname.startsWith('/static/')) {
-                const filePath = `${this.config.static}${url.pathname.replace('/static', '')}`;
-                const file = Bun.file(filePath);
-                if (await file.exists()) {
-                  return new Response(file);
+                const path = await import('path');
+                // Secure path resolution
+                const staticRoot = path.resolve(this.config.static);
+                const requestedPath = path.resolve(staticRoot, '.' + url.pathname.replace('/static', ''));
+                
+                // Ensure the resolved path is within the static root
+                if (requestedPath.startsWith(staticRoot)) {
+                   const file = Bun.file(requestedPath);
+                   if (await file.exists()) {
+                     return new Response(file);
+                   }
                 }
               }
             }

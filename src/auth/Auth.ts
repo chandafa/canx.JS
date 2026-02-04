@@ -36,6 +36,8 @@ interface JWTConfig {
   secret: string;
   expiresIn?: number; // seconds, default 24 hours
   algorithm?: 'HS256' | 'HS384' | 'HS512';
+  kid?: string;
+  keys?: Record<string, string>; // Map of kid: secret
 }
 
 const encoder = new TextEncoder();
@@ -65,7 +67,11 @@ export async function signJWT(payload: Omit<JWTPayload, 'iat' | 'exp'> & { sub: 
   const alg = config.algorithm || 'HS256';
   const hashAlg = alg === 'HS256' ? 'SHA-256' : alg === 'HS384' ? 'SHA-384' : 'SHA-512';
   
-  const header = { alg, typ: 'JWT' };
+  const header: any = { alg, typ: 'JWT' };
+  if (config.kid) {
+    header.kid = config.kid;
+  }
+  
   const now = Math.floor(Date.now() / 1000);
   const fullPayload: JWTPayload = {
     ...payload,
@@ -77,7 +83,13 @@ export async function signJWT(payload: Omit<JWTPayload, 'iat' | 'exp'> & { sub: 
   const payloadB64 = base64UrlEncode(JSON.stringify(fullPayload));
   const data = `${headerB64}.${payloadB64}`;
 
-  const key = await createHmacKey(config.secret, hashAlg);
+  // Select secret: if keys is provided and kid matches, use that. Else default secret.
+  let secret = config.secret;
+  if (config.keys && config.kid && config.keys[config.kid]) {
+    secret = config.keys[config.kid];
+  }
+
+  const key = await createHmacKey(secret, hashAlg);
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
   const signatureB64 = base64UrlEncode(new Uint8Array(signature).reduce((s, b) => s + String.fromCharCode(b), ''));
 
@@ -96,14 +108,26 @@ export async function verifyJWT(token: string, config: JWTConfig): Promise<JWTPa
     // Security: Enforce allowed algorithm
     const allowedAlg = config.algorithm || 'HS256';
     if (alg !== allowedAlg) {
-       // Silent fail or return null for security (avoid enumeration)
        return null;
     }
 
     const hashAlg = allowedAlg === 'HS256' ? 'SHA-256' : allowedAlg === 'HS384' ? 'SHA-384' : 'SHA-512';
 
+    // Select key based on kid in header
+    let secret = config.secret;
+    if (header.kid && config.keys && config.keys[header.kid]) {
+        secret = config.keys[header.kid];
+    } else if (header.kid && config.keys && !config.keys[header.kid]) {
+        // Kid present but not found in keys -> Fail? Or fallback?
+        // Secure default: if kid is explicitly unknown, fail.
+        // But if standard secret is provided, maybe we allow?
+        // Best practice: if kid is there, use it. If not found, fail.
+        // If kid is NOT there, use default secret.
+        return null; 
+    }
+
     // Verify signature
-    const key = await createHmacKey(config.secret, hashAlg);
+    const key = await createHmacKey(secret, hashAlg);
     const data = `${headerB64}.${payloadB64}`;
     const signature = Uint8Array.from(base64UrlDecode(signatureB64), c => c.charCodeAt(0));
     
@@ -235,6 +259,21 @@ export interface SessionDriver {
 
 export class MemorySessionDriver implements SessionDriver {
   private sessions: Map<string, Session> = new Map();
+  private interval: Timer | null = null; // Use Timer type or any
+
+  constructor() {
+    // Auto-cleanup every minute (lottery or interval)
+    // Using interval to ensure no leaks
+    // Note: This prevents process exit if not unref'ed. Bun/Node supports unref.
+    // In Bun: setInterval().unref() is valid? Or just let it be.
+    // We'll use a simple interval and hope it doesn't block.
+    // Actually, maybe better to run cleanup on create() probabilistically?
+    // User requested "automatic mechanism".
+    this.interval = setInterval(() => this.cleanup(), 60000) as any;
+    if (this.interval && typeof (this.interval as any).unref === 'function') {
+        (this.interval as any).unref();
+    }
+  }
 
   generateId(): string {
     return `sess_${Date.now().toString(36)}_${crypto.randomUUID().replace(/-/g, '')}`;

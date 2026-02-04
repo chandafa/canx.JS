@@ -14,6 +14,7 @@ export class Canx implements CanxApplication {
   router: Router;
   private server: Server | null = null;
   private pipeline: MiddlewarePipeline;
+  private postPipeline: MiddlewarePipeline;
   private plugins: Plugin[] = [];
 
   constructor(config: ServerConfig = {}) {
@@ -30,6 +31,7 @@ export class Canx implements CanxApplication {
     container.instance('Router', this.router);
 
     this.pipeline = new MiddlewarePipeline();
+    this.postPipeline = new MiddlewarePipeline();
   }
 
   /**
@@ -37,6 +39,14 @@ export class Canx implements CanxApplication {
    */
   use(middleware: MiddlewareHandler): this {
     this.pipeline.use(middleware);
+    return this;
+  }
+
+  /**
+   * Register global post-middleware (runs after route middleware)
+   */
+  usePost(middleware: MiddlewareHandler): this {
+    this.postPipeline.use(middleware);
     return this;
   }
 
@@ -125,7 +135,26 @@ export class Canx implements CanxApplication {
       Object.assign(req.params, match.params);
 
       // Execute middleware pipeline and handler
-      const result = await this.pipeline.execute(req, res, match.middlewares, () => match.handler(req, res));
+      // Flow: Global Pre -> Route -> Global Post -> Handler (Wait, post should be wrapped? Or appended?)
+      // Actually, if we append Post middleware to the list, they run BEFORE handler if we treat handler as terminal.
+      // But if we want them to run AFTER handler (like logging response), they must 'await next()'.
+      // But if we want them to be OUTER layers, they should be PREPENDED to the chain?
+      // No, "Post middleware" usually implies "Runs after handler returns". In onion model, that means they are the OUTERMOST layers.
+      // So app.use() (Global Pre) -> app.usePost() (Global Post).
+      // If Pre is outer, it runs first. Post is ???
+      // User request: "Global middleware yang dijalankan SETELAH route handler".
+      // If I wrap everything: PostMiddleware( PreMiddleware( RouteMiddleware( Handler ) ) )
+      // Then PostMiddleware starts first, calls next(), calls Pre... Handler returns... PostMiddleware resumes.
+      // So "Post Middleware" is just a middleware that wraps the whole stack?
+      // Or does user mean a list that is appended to route middleware?
+      // "Global middlewares selalu di-prepend ke route middleware".
+      // Implies user wants [Global, ...Route, Post].
+      // If we do that: Global(next=Route) -> Route(next=Post) -> Post(next=Handler).
+      // If Post is `(req, res, next) => { handle(); await next(); }`, then it works.
+      
+      const postMiddlewares = (this.postPipeline as any).middlewares || [];
+      const allMiddlewares = [...match.middlewares, ...postMiddlewares];
+      const result = await this.pipeline.execute(req, res, allMiddlewares, () => match.handler(req, res));
       
       // If handler returns string (e.g., from View()), wrap in HTML Response
       if (typeof result === 'string') {

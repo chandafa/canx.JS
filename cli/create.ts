@@ -249,7 +249,7 @@ function getDatabaseConfig() {
   return `import type { DatabaseConfig } from 'canxjs';
 
 const config: DatabaseConfig = {
-  driver: 'mysql',
+  driver: process.env.DB_CONNECTION || 'mysql',
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT) || 3306,
   database: process.env.DB_NAME || 'canxjs_app',

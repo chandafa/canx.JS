@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.7.0] - 2026-02-04
+
+### Security Fixes
+
+- **Mass Assignment**: Implemented `$fillable` and `$guarded` in `Model` to prevent unauthorized attribute assignment.
+- **Path Traversal**: Hardened `Server.ts` static file serving to prevent directory traversal attacks.
+- **JWT**: Added `kid` (Key ID) support to `Auth.ts` for key rotation in JWT signing and verification.
+
+### Improvements
+
+- **Offline Support**: Removed hardcoded Tailwind CDN from error pages; now uses inline styles.
+- **CLI**: Enhanced flag parsing to support space-separated flags (e.g., `--name value`).
+- **Session**: Added auto-cleanup interval to `MemorySessionDriver` to prevent memory leaks.
+- **Router**: Secured `Router.url()` with `encodeURIComponent`.
+- **Middleware**: Added `usePost()` for registering execution-after-handler middleware.
+
 ## [1.6.1] - 2026-02-01
 
 ### Added

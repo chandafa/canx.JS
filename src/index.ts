@@ -15,7 +15,7 @@ export { Canx, createApp, defineConfig, createApplication, Application } from '.
 export { Action } from './core/Action';
 export type { ServerConfig } from './types';
 export { ErrorHandler } from './core/ErrorHandler';
-export type { CanxRequest, CanxResponse, HttpMethod, CanxApplication, CastType, NextFunction } from './types';
+export type { CanxRequest, CanxResponse, HttpMethod, CanxApplication, CastType, NextFunction, DatabaseConfig, RouterInstance } from './types';
 // ============================================
 // Middleware Exports
 // ============================================

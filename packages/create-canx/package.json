@@ -1,6 +1,6 @@
 {
   "name": "create-canx",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Scaffolding tool for CanxJS",
   "type": "module",
   "bin": {

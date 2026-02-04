@@ -43,9 +43,9 @@ export interface CanxRequest {
   /** Request headers */
   headers: Headers;
   /** Parsed request body */
-  body: <T = unknown>() => Promise<T>;
+  body: <T = any>() => Promise<T>;
   /** Get JSON body */
-  json: <T = unknown>() => Promise<T>;
+  json: <T = any>() => Promise<T>;
   /** Get form data */
   formData: () => Promise<FormData>;
   /** Get raw text */
@@ -398,7 +398,8 @@ export type ValidationRule =
   | `in:${string}`
   | `notIn:${string}`
   | `same:${string}`
-  | `different:${string}`;
+  | `different:${string}`
+  | string;
 
 export interface ValidationSchema {
   [field: string]: ValidationRule | ValidationRule[] | string | {

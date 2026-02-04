@@ -223,12 +223,93 @@ ${dim}${error.stack?.split('\n').filter(l => !l.includes('node_modules')).slice(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${config.icon} ${status} - ${config.title}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    * { font-family: 'Inter', sans-serif; }
-    code, pre, .mono { font-family: 'JetBrains Mono', monospace; }
+    /* Reset & Base */
+    :root {
+      --bg-color: #0a0f1a;
+      --text-color: #d1d5db;
+      --glass-bg: rgba(30, 41, 59, 0.8);
+      --glass-border: rgba(255, 255, 255, 0.1);
+    }
+    body { margin: 0; padding: 0; background-color: var(--bg-color); color: var(--text-color); font-family: system-ui, -apple-system, sans-serif; line-height: 1.5; }
+    *, *::before, *::after { box-sizing: border-box; }
+    
+    /* Utilities */
+    .dark { color-scheme: dark; }
+    .min-h-screen { min-height: 100vh; }
+    .relative { position: relative; }
+    .fixed { position: fixed; }
+    .absolute { position: absolute; }
+    .inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
+    .overflow-hidden { overflow: hidden; }
+    .pointer-events-none { pointer-events: none; }
+    .flex { display: flex; }
+    .grid { display: grid; }
+    .items-center { align-items: center; }
+    .justify-center { justify-content: center; }
+    .justify-between { justify-content: space-between; }
+    .gap-2 { gap: 0.5rem; }
+    .gap-3 { gap: 0.75rem; }
+    .gap-4 { gap: 1rem; }
+    .gap-6 { gap: 1.5rem; }
+    .p-3 { padding: 0.75rem; }
+    .p-4 { padding: 1rem; }
+    .p-5 { padding: 1.25rem; }
+    .p-6 { padding: 1.5rem; }
+    .p-8 { padding: 2rem; }
+    .px-4 { padding-left: 1rem; padding-right: 1rem; }
+    .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+    .py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+    .py-8 { padding-top: 2rem; padding-bottom: 2rem; }
+    .mb-1 { margin-bottom: 0.25rem; }
+    .mb-2 { margin-bottom: 0.5rem; }
+    .mb-3 { margin-bottom: 0.75rem; }
+    .mb-4 { margin-bottom: 1rem; }
+    .mb-6 { margin-bottom: 1.5rem; }
+    .mt-2 { margin-top: 0.5rem; }
+    .mt-6 { margin-top: 1.5rem; }
+    .ml-2 { margin-left: 0.5rem; }
+    .mr-2 { margin-right: 0.5rem; }
+    .w-full { width: 100%; }
+    .max-w-6xl { max-width: 72rem; }
+    .max-w-md { max-width: 28rem; }
+    .mx-auto { margin-left: auto; margin-right: auto; }
+    .rounded { border-radius: 0.25rem; }
+    .rounded-lg { border-radius: 0.5rem; }
+    .rounded-xl { border-radius: 0.75rem; }
+    .rounded-2xl { border-radius: 1rem; }
+    .rounded-full { border-radius: 9999px; }
+    .border { border-width: 1px; border-style: solid; border-color: var(--glass-border); }
+    .border-b { border-bottom-width: 1px; border-bottom-style: solid; border-color: var(--glass-border); }
+    .border-l-2 { border-left-width: 2px; border-left-style: solid; }
+    .shadow-xl { box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); }
+    .shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
+    
+    /* Typography */
+    .text-xs { font-size: 0.75rem; }
+    .text-sm { font-size: 0.875rem; }
+    .text-lg { font-size: 1.125rem; }
+    .text-2xl { font-size: 1.5rem; }
+    .text-3xl { font-size: 1.875rem; }
+    .font-medium { font-weight: 500; }
+    .font-semibold { font-weight: 600; }
+    .font-bold { font-weight: 700; }
+    .uppercase { text-transform: uppercase; }
+    .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .break-all { word-break: break-all; }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    
+    /* Colors */
+    .bg-white { background-color: #ffffff; }
+    .text-white { color: #ffffff; }
+    .text-gray-300 { color: #d1d5db; }
+    .text-gray-400 { color: #9ca3af; }
+    .text-gray-500 { color: #6b7280; }
+    .text-gray-600 { color: #4b5563; }
+    
+    /* Custom Components */
+    .mono { font-family: monospace; }
     .code-line { counter-increment: line; }
     .code-line::before { 
       content: counter(line); 
@@ -241,12 +322,12 @@ ${dim}${error.stack?.split('\n').filter(l => !l.includes('node_modules')).slice(
       user-select: none;
     }
     .highlight { 
-      background: linear-gradient(90deg, rgba(239,68,68,0.2) 0%, rgba(239,68,68,0.05) 100%); 
+      background: rgba(239,68,68,0.1); 
       border-left: 3px solid #ef4444; 
       margin-left: -3px;
     }
     .glass {
-      background: rgba(30, 41, 59, 0.8);
+      background: var(--glass-bg);
       backdrop-filter: blur(10px);
     }
     .gradient-border {
@@ -254,12 +335,30 @@ ${dim}${error.stack?.split('\n').filter(l => !l.includes('node_modules')).slice(
       padding: 1px;
       border-radius: 16px;
     }
-    .animate-pulse-slow { animation: pulse 3s ease-in-out infinite; }
-    @keyframes float {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-10px); }
+    
+    /* Colors mapping for dynamic classes */
+    .text-yellow-400 { color: #facc15; }
+    .bg-yellow-500\\/10 { background-color: rgba(234, 179, 8, 0.1); }
+    .border-yellow-500\\/30 { border-color: rgba(234, 179, 8, 0.3); }
+    
+    .text-red-400 { color: #f87171; }
+    .text-red-500 { color: #ef4444; }
+    .bg-red-500\\/10 { background-color: rgba(239, 68, 68, 0.1); }
+    .border-red-500\\/30 { border-color: rgba(239, 68, 68, 0.3); }
+    
+    .text-blue-400 { color: #60a5fa; }
+    .bg-blue-500\\/5 { background-color: rgba(59, 130, 246, 0.05); }
+    .bg-blue-500\\/10 { background-color: rgba(59, 130, 246, 0.1); }
+    .border-blue-500\\/30 { border-color: rgba(59, 130, 246, 0.3); }
+    
+    .text-green-400 { color: #4ade80; }
+    
+    /* Responsive */
+    @media (min-width: 1024px) {
+      .lg\\:p-10 { padding: 2.5rem; }
+      .lg\\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .lg\\:col-span-2 { grid-column: span 2 / span 2; }
     }
-    .float { animation: float 6s ease-in-out infinite; }
   </style>
 </head>
 <body class="bg-[#0a0f1a] text-gray-300 min-h-screen relative overflow-x-hidden">

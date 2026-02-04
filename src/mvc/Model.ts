@@ -27,7 +27,8 @@ export async function initDatabase(config: DatabaseConfig): Promise<void> {
       connectionLimit: config.pool?.max || 10,
       queueLimit: 0,
     });
-    console.log('[CanxJS] MySQL connection pool created');
+
+    if (config.logging) console.log('[CanxJS] MySQL connection pool created');
   } else if (config.driver === 'postgresql') {
     const { Pool } = await import('pg');
     pgPool = new Pool({
@@ -39,11 +40,13 @@ export async function initDatabase(config: DatabaseConfig): Promise<void> {
       max: config.pool?.max || 10,
       idleTimeoutMillis: config.pool?.idle || 30000,
     });
-    console.log('[CanxJS] PostgreSQL connection pool created');
+
+    if (config.logging) console.log('[CanxJS] PostgreSQL connection pool created');
   } else if (config.driver === 'sqlite') {
     const { Database } = await import('bun:sqlite');
     sqliteDb = new Database(config.database);
-    console.log('[CanxJS] SQLite database connected');
+
+    if (config.logging) console.log('[CanxJS] SQLite database connected');
   }
 }
 
@@ -544,12 +547,16 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
 }
 
 // Base Model class
-export abstract class Model {
+export abstract class Model<T = any> {
   protected static tableName: string;
   protected static primaryKey: string = 'id';
   protected static timestamps: boolean = true;
   protected static softDeletes: boolean = false;
   protected static deletedAtColumn: string = 'deleted_at';
+  
+  // Mass Assignment Protection
+  protected static fillable: string[] = [];
+  protected static guarded: string[] = ['id', 'created_at', 'updated_at', 'deleted_at'];
 
   // Observers
   protected static observers: ModelObserver[] = [];
@@ -652,9 +659,23 @@ export abstract class Model {
      }
   }
 
-  // Override fill to handle casting
+  // Override fill to handle casting and mass assignment protection
   fill(data: any): this {
+    const Ctor = this.constructor as typeof Model;
+    const fillable = Ctor.fillable;
+    const guarded = Ctor.guarded;
+    
+    // Check if fillable is defined and not empty (allow-list mode)
+    const isFillableMode = fillable.length > 0;
+
     for (const key in data) {
+       // Filter keys
+       if (isFillableMode) {
+           if (!fillable.includes(key)) continue;
+       } else {
+           if (guarded.includes(key)) continue;
+       }
+
        this[key] = this.castAttribute(key, data[key]);
     }
     return this;

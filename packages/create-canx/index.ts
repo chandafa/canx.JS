@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 import prompts from 'prompts';
 import pc from 'picocolors';
+import { readdirSync } from 'fs';
 
 type ProjectType = 'api' | 'mvc' | 'microservice';
 type Language = 'typescript' | 'javascript';
@@ -40,6 +41,7 @@ function parseArgs(args: string[]) {
 function getPackageJson(options: ProjectOptions) {
   const deps: Record<string, string> = {
     'canxjs': 'latest',
+    'reflect-metadata': '^0.2.0',
   };
 
   if (options.type === 'mvc') {
@@ -66,8 +68,8 @@ function getPackageJson(options: ProjectOptions) {
   }
 
   if (options.prisma) {
-    deps['@prisma/client'] = 'latest';
-    devDeps['prisma'] = 'latest';
+    deps['@prisma/client'] = '^6.0.0';
+    devDeps['prisma'] = '^6.0.0';
   }
 
   const scripts: Record<string, string> = {
@@ -592,7 +594,7 @@ function getDatabaseConfig(options: ProjectOptions) {
   const typeAnnot = isTs ? ": DatabaseConfig" : "";
   
   let driver = 'mysql'; // default
-  if (options.database === 'postgres') driver = 'postgres';
+  if (options.database === 'postgres') driver = 'postgresql';
   if (options.database === 'sqlite') driver = 'sqlite';
 
   return `${typeExport}
@@ -1197,8 +1199,17 @@ function createProject(options: ProjectOptions) {
   const projectPath = resolve(process.cwd(), options.name);
 
   if (existsSync(projectPath)) {
-    console.error(pc.red(`❌ Directory "${options.name}" already exists!`));
-    process.exit(1);
+    // If directory exists, check if it's empty or if it's the current directory
+    if (projectPath === process.cwd()) {
+       // Proceed if using current directory
+       console.log(pc.yellow(`⚠️  Creating project in current directory...`));
+    } else {
+       const files = readdirSync(projectPath);
+       if (files.length > 0) {
+          console.error(pc.red(`❌ Directory "${options.name}" already exists and is not empty!`));
+          process.exit(1);
+       }
+    }
   }
 
   console.log(pc.green(`\n🚀 Creating CanxJS project: ${options.name}\n`));
@@ -1233,7 +1244,9 @@ function createProject(options: ProjectOptions) {
     ['package.json', getPackageJson(options)],
     ['bunfig.toml', getBunfig()],
     ['.gitignore', getGitignore()],
+    ['.gitignore', getGitignore()],
     ['.env.example', getEnvExample(options)],
+    ['.env', getEnvExample(options)],
     ['README.md', getReadme(options.name)],
     [`src/app.${ext}`, getAppContent(options)],
   ];

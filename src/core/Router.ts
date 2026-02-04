@@ -98,7 +98,7 @@ export class Router implements RouterInstance {
       if (!path) throw new Error(`Route "${name}" not found.`);
       
       for (const [key, value] of Object.entries(params)) {
-          path = path.replace(`:${key}`, String(value));
+          path = path.replace(`:${key}`, encodeURIComponent(String(value)));
           // Also handle optional params? For V1, simplicity.
       }
       return path;
