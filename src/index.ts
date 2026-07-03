@@ -15,7 +15,7 @@ export { Canx, createApp, defineConfig, createApplication, Application } from '.
 export { Action } from './core/Action';
 export type { ServerConfig } from './types';
 export { ErrorHandler } from './core/ErrorHandler';
-export type { CanxRequest, CanxResponse, HttpMethod, CanxApplication, CastType, NextFunction, DatabaseConfig, RouterInstance } from './types';
+export type { CanxRequest, CanxResponse, HttpMethod, CanxApplication, CastType, NextFunction, DatabaseConfig, RouterInstance, MiddlewareHandler, RouteHandler, QueryBuilder, Paginated } from './types';
 // ============================================
 // Middleware Exports
 // ============================================
@@ -190,6 +190,7 @@ export {
   authMiddleware,
   requireAuth,
   guestOnly,
+  runInAuthContext,
   SessionGuard,
   TokenGuard,
   JwtGuard,
@@ -343,7 +344,7 @@ export type {
 
 // NOTE: Microservices, CQRS, and GraphQL have been moved to their own entry points (e.g. 'canxjs/microservices').
 
-export { Schema, migrator, defineMigration } from './database/Migration';
+export { Schema, TableBuilder, migrator, defineMigration } from './database/Migration';
 export { seeder, fake, factory as seederFactory, defineSeeder } from './database/Seeder';
 
 // ============================================
@@ -789,6 +790,13 @@ export type { QueryOptions, SortOption, PaginationMeta as ApiPaginationMeta } fr
 
 
 export { validate, validateAsync, is, extend, extendAsync, extendParam, setMessage } from './utils/Validator';
+
+// Form Requests (Laravel-style validation + authorization)
+export { FormRequest, createFormRequest, ValidateWith, validated as validatedInput, getFormRequest } from './utils/FormRequest';
+export type { FormRequestOptions } from './utils/FormRequest';
+
+// Global helpers (Laravel-style ergonomic shortcuts)
+export { route, url as urlFor, abort, config as configHelper } from './utils/Helpers';
 
 // ============================================
 // Testing Exports

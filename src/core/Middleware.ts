@@ -29,12 +29,15 @@ export class MiddlewarePipeline {
       }
       const middleware = allMiddlewares[index++];
       const result = await middleware(req, res, next);
-      return result || undefined;
+      return result;
     };
 
     try {
       const result = await next();
-      return result || new Response('No response', { status: 500 });
+      // Use nullish check, NOT `||`: a handler may legitimately return an empty
+      // string, 0, false or null (auto-serialized downstream). Only truly
+      // missing responses (undefined/null) become the fallback.
+      return result ?? new Response('No response', { status: 500 });
     } catch (error) {
       console.error('[CanxJS Middleware Error]', error);
       return new Response(JSON.stringify({ 

@@ -53,14 +53,21 @@ async function createHmacKey(secret: string, algorithm: string): Promise<CryptoK
 }
 
 function base64UrlEncode(data: Uint8Array | string): string {
-  const str = typeof data === 'string' ? data : new TextDecoder().decode(data);
-  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  // UTF-8 encode first so payloads with non-Latin1 chars (CJK, emoji, accented
+  // names) don't make btoa throw. ASCII round-trips identically (backward compat).
+  const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function base64UrlDecode(str: string): string {
   str = str.replace(/-/g, '+').replace(/_/g, '/');
   while (str.length % 4) str += '=';
-  return atob(str);
+  const binary = atob(str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
 }
 
 export async function signJWT(payload: Omit<JWTPayload, 'iat' | 'exp'> & { sub: string | number }, config: JWTConfig): Promise<string> {

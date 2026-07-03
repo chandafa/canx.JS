@@ -28,8 +28,8 @@ export class Scheduler {
   private running: Set<string> = new Set();
 
   constructor() {
-    // Start ticker
-    this.start();
+    // Ticker starts lazily on the first registered task (or via start()),
+    // so merely importing the framework does not keep the process alive.
   }
 
   /**
@@ -51,6 +51,7 @@ export class Scheduler {
    */
   registerTask(task: Task) {
     this.tasks.push(task);
+    this.start();
     if (task.options.runOnStartup) {
       this.runTask(task);
     }

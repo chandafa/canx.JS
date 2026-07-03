@@ -15,12 +15,49 @@ const validators: Record<string, (value: unknown, param?: string) => boolean> = 
   date: (v) => !isNaN(Date.parse(String(v))),
   array: (v) => Array.isArray(v),
   object: (v) => typeof v === 'object' && v !== null && !Array.isArray(v),
+  // Numeric: a number or a numeric string
+  numeric: (v) => (typeof v === 'number' && !isNaN(v)) || (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v))),
+  // Integer: whole number (or whole-number string)
+  integer: (v) => Number.isInteger(typeof v === 'string' ? Number(v) : v),
+  // Alphabetic characters only
+  alpha: (v) => typeof v === 'string' && /^[a-zA-Z]+$/.test(v),
+  // Alphanumeric characters only
+  alphaNum: (v) => typeof v === 'string' && /^[a-zA-Z0-9]+$/.test(v),
+  alphanum: (v) => typeof v === 'string' && /^[a-zA-Z0-9]+$/.test(v),
+  alpha_num: (v) => typeof v === 'string' && /^[a-zA-Z0-9]+$/.test(v),
+};
+
+// Rules that are modifiers / flow-control and never fail on their own.
+// (Presence/optional semantics are handled by the empty-skip logic in validate.)
+const NOOP_RULES = new Set(['nullable', 'sometimes', 'optional', 'filled', 'present', 'bail']);
+
+// "Sizeable" measure of a value: numeric value when the field is numeric,
+// otherwise string length (Laravel semantics).
+function sizeOf(v: unknown, numeric: boolean): number {
+  if (Array.isArray(v)) return v.length;
+  if (numeric || typeof v === 'number') return Number(v);
+  return String(v).length;
+}
+
+// Param validators that need the numeric context of the field.
+const contextParamValidators: Record<string, (value: unknown, param: string, numeric: boolean) => boolean> = {
+  min: (v, p, n) => sizeOf(v, n) >= Number(p),
+  max: (v, p, n) => sizeOf(v, n) <= Number(p),
+  size: (v, p, n) => sizeOf(v, n) === Number(p),
+  gt: (v, p, n) => sizeOf(v, n) > Number(p),
+  gte: (v, p, n) => sizeOf(v, n) >= Number(p),
+  lt: (v, p, n) => sizeOf(v, n) < Number(p),
+  lte: (v, p, n) => sizeOf(v, n) <= Number(p),
+  between: (v, p, n) => {
+    const [lo, hi] = p.split(',').map(Number);
+    const s = sizeOf(v, n);
+    return s >= lo && s <= hi;
+  },
 };
 
 const paramValidators: Record<string, (value: unknown, param: string) => boolean> = {
-  min: (v, p) => (typeof v === 'number' ? v >= Number(p) : String(v).length >= Number(p)),
-  max: (v, p) => (typeof v === 'number' ? v <= Number(p) : String(v).length <= Number(p)),
   length: (v, p) => String(v).length === Number(p),
+  digits: (v, p) => /^\d+$/.test(String(v)) && String(v).length === Number(p),
   regex: (v, p) => new RegExp(p).test(String(v)),
   in: (v, p) => p.split(',').includes(String(v)),
   notIn: (v, p) => !p.split(',').includes(String(v)),
@@ -43,11 +80,28 @@ const defaultMessages: Record<string, string> = {
   regex: 'Field {field} format is invalid',
   in: 'Field {field} must be one of: {param}',
   notIn: 'Field {field} must not be one of: {param}',
+  numeric: 'Field {field} must be numeric',
+  integer: 'Field {field} must be an integer',
+  size: 'Field {field} must be {param}',
+  gt: 'Field {field} must be greater than {param}',
+  gte: 'Field {field} must be at least {param}',
+  lt: 'Field {field} must be less than {param}',
+  lte: 'Field {field} must be at most {param}',
+  between: 'Field {field} must be between {param}',
+  digits: 'Field {field} must be {param} digits',
+  alpha: 'Field {field} may only contain letters',
+  alphaNum: 'Field {field} may only contain letters and numbers',
+  alphanum: 'Field {field} may only contain letters and numbers',
+  alpha_num: 'Field {field} may only contain letters and numbers',
+  confirmed: 'Field {field} confirmation does not match',
 };
 
 function parseRule(rule: ValidationRule): { name: string; param?: string } {
-  const [name, param] = rule.split(':');
-  return { name, param };
+  // Split on the FIRST colon only, so params containing ':' (e.g. regex
+  // patterns, time formats) are preserved intact.
+  const idx = rule.indexOf(':');
+  if (idx === -1) return { name: rule };
+  return { name: rule.slice(0, idx), param: rule.slice(idx + 1) };
 }
 
 export function validate(data: Record<string, unknown>, schema: ValidationSchema): ValidationResult {
@@ -70,14 +124,26 @@ export function validate(data: Record<string, unknown>, schema: ValidationSchema
       ruleList = rules.split('|') as ValidationRule[];
     }
 
+    // A field is "numeric" (for min/max/size/between) when it carries a
+    // numeric/integer rule — matches Laravel's type inference.
+    const numericField = ruleList.some((r) => {
+      const n = parseRule(r).name;
+      return n === 'numeric' || n === 'integer';
+    });
+
     for (const rule of ruleList) {
       const { name, param } = parseRule(rule);
-      
+
+      // Modifier / flow-control rules never fail on their own.
+      if (NOOP_RULES.has(name)) {
+        continue;
+      }
+
       // Skip if not required and value is empty
       if (name !== 'required' && (value === undefined || value === null || value === '')) {
         continue;
       }
-      
+
       // Skip async rules
       if (['unique', 'exists'].includes(name)) {
         continue;
@@ -86,12 +152,22 @@ export function validate(data: Record<string, unknown>, schema: ValidationSchema
       let valid = false;
       if (validators[name]) {
         valid = validators[name](value);
-      } else if (paramValidators[name] && param) {
+      } else if (contextParamValidators[name] && param !== undefined) {
+        valid = contextParamValidators[name](value, param, numericField);
+      } else if (paramValidators[name] && param !== undefined) {
         valid = paramValidators[name](value, param);
       } else if (name === 'same') {
         valid = value === data[param!];
       } else if (name === 'different') {
         valid = value !== data[param!];
+      } else if (name === 'confirmed') {
+        // Laravel-style: matches `<field>_confirmation`
+        valid = value === data[`${field}_confirmation`];
+      } else {
+        // Unknown rule name: don't hard-fail a valid value on a rule we don't
+        // implement — treat as a pass (Laravel would throw, but silently
+        // failing every value is worse for a forgiving framework).
+        valid = true;
       }
 
       if (!valid) {

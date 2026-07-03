@@ -14,11 +14,30 @@ const VOID_ELEMENTS = new Set([
 ]);
 
 // JSX Factory functions for Bun's native JSX support
-// Safe HTML String wrapper
+// Safe HTML String wrapper.
+//
+// Branded with a GLOBAL symbol so a SafeString is recognized even when the
+// View module is loaded more than once (e.g. a sub-package like canx-ui
+// bundles its own copy of the jsx-runtime). Without this, `instanceof
+// SafeString` fails across module copies and already-rendered HTML gets
+// double-escaped into visible markup.
+const SAFE_STRING_BRAND: unique symbol = Symbol.for('canxjs.view.SafeString');
+
 export class SafeString extends String {
+  // Brand present on every instance; detectable across module boundaries.
+  readonly [SAFE_STRING_BRAND] = true;
+
   toString(): string {
     return super.toString();
   }
+}
+
+/** Cross-instance-safe check for a SafeString (handles duplicate module copies). */
+export function isSafeString(value: any): value is SafeString {
+  return (
+    value instanceof SafeString ||
+    (value != null && typeof value === 'object' && (value as any)[SAFE_STRING_BRAND] === true)
+  );
 }
 
 // Helper to mark string as safe (e.g. from other components)
@@ -40,7 +59,7 @@ export const jsx = (
   if (typeof tag === 'function') {
     const res = tag(props || {});
     // Ensure result is SafeString
-    return res instanceof SafeString ? res : new SafeString(String(res));
+    return isSafeString(res) ? res : new SafeString(String(res));
   }
 
   // 3. Handle Native Elements
@@ -121,8 +140,9 @@ function processChildren(children: any): string {
     return children.map(processChildren).join('');
   }
   
-  // Critical Security Check
-  if (children instanceof SafeString) {
+  // Critical Security Check (cross-instance-safe: also matches SafeStrings
+  // produced by a duplicate copy of this module, e.g. from canx-ui).
+  if (isSafeString(children)) {
       return children.toString();
   }
   

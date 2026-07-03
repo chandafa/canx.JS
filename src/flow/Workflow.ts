@@ -150,7 +150,8 @@ export class WorkflowEngine {
 
   constructor(storage?: WorkflowStorage) {
     this.storage = storage || new MemoryWorkflowStorage();
-    this.startPoller();
+    // Poller starts lazily when the first workflow instance is started,
+    // so merely importing the framework does not keep the process alive.
   }
 
   /**
@@ -166,6 +167,7 @@ export class WorkflowEngine {
   async start(name: string, ...args: any[]): Promise<string> {
     const handler = this.workflows.get(name);
     if (!handler) throw new Error(`Workflow ${name} not found`);
+    this.startPoller();
 
     const id = crypto.randomUUID();
     const state: WorkflowState = {
@@ -228,6 +230,7 @@ export class WorkflowEngine {
    * Poll for sleeping workflows that need to wake up
    */
   private startPoller() {
+    if (this.pollingInterval) return;
     this.pollingInterval = setInterval(async () => {
       const pending = await this.storage.findPending();
       for (const wf of pending) {

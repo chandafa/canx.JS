@@ -36,6 +36,11 @@ export abstract class Schema<Output = any, Input = unknown> {
   optional(): Schema<Output | undefined, Input | undefined> {
     const newSchema = Object.create(this);
     newSchema.isOptional = true;
+    // Give the clone its OWN checks array, otherwise a check added after
+    // .optional() (e.g. .optional().min(3)) mutates the shared parent array.
+    if (Array.isArray((this as any).checks)) {
+      newSchema.checks = [...(this as any).checks];
+    }
     return newSchema as any;
   }
 
@@ -122,10 +127,9 @@ class NumberSchema extends Schema<number> {
     }
 
     if (typeof value !== 'number' || isNaN(value)) {
-       // Try converting string number
-       if (typeof value === 'string' && !isNaN(parseFloat(value))) {
-         const num = parseFloat(value);
-         return this.validateChecks(num);
+       // Coerce a fully-numeric string only (reject "5abc" trailing garbage).
+       if (typeof value === 'string' && value.trim() !== '' && !isNaN(Number(value))) {
+         return this.validateChecks(Number(value));
        }
       throw new ValidationException({ _errors: ['Expected number, received ' + typeof value] });
     }

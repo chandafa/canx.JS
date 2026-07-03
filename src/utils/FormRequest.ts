@@ -4,7 +4,7 @@
  */
 
 import type { CanxRequest, CanxResponse, MiddlewareHandler, ValidationSchema, ValidationResult } from '../types';
-import { validate as validateData } from '../utils/Validator';
+import { validateAsync as validateData } from '../utils/Validator';
 import { gate } from '../auth/Gate';
 
 // ============================================
@@ -158,9 +158,9 @@ export abstract class FormRequest {
     // Prepare data
     const preparedData = this.prepareForValidation(data);
     
-    // Run validation
-    const result = validateData(preparedData, this.rules());
-    
+    // Run validation (async so unique/exists DB rules are enforced)
+    const result = await validateData(preparedData, this.rules());
+
     if (result.valid) {
       this.validatedData = result.data;
       await this.passedValidation();

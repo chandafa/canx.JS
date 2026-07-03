@@ -110,10 +110,16 @@ export class Router implements RouterInstance {
     methods.forEach(m => this.trees.set(m, createNode()));
   }
 
-  private normalizePath(path: string): string {
-    let p = this.routerOptions.caseSensitive ? path : path.toLowerCase();
+  // Normalize leading/trailing slash but PRESERVE original casing.
+  private normalizeCase(path: string): string {
+    let p = path;
     if (this.routerOptions.trailingSlash === 'remove' && p.endsWith('/') && p.length > 1) p = p.slice(0, -1);
     return p.startsWith('/') ? p : '/' + p;
+  }
+
+  private normalizePath(path: string): string {
+    const p = this.normalizeCase(path);
+    return this.routerOptions.caseSensitive ? p : p.toLowerCase();
   }
 
   private addRoute(method: HttpMethod, path: string, handler: RouteHandler, mws: MiddlewareHandler[] = []): void {
@@ -154,50 +160,74 @@ export class Router implements RouterInstance {
   }
 
   match(method: HttpMethod, path: string): RouteMatch | null {
-    const p = this.normalizePath(path);
+    const cased = this.normalizeCase(path);
+    const p = this.routerOptions.caseSensitive ? cased : cased.toLowerCase();
     const key = `${method}:${p}`;
     if (this.routeCache.has(key)) return this.routeCache.get(key) || null;
 
-    let result = this.matchTree(this.trees.get(method)!, p) || this.matchTree(this.trees.get('ALL')!, p);
+    let result = this.matchTree(this.trees.get(method)!, p, cased) || this.matchTree(this.trees.get('ALL')!, p, cased);
+
+    // HEAD falls back to the GET handler (per the HTTP spec) when no explicit
+    // HEAD route is registered.
+    if (!result && method === 'HEAD') {
+      result = this.matchTree(this.trees.get('GET')!, p, cased) || this.matchTree(this.trees.get('ALL')!, p, cased);
+    }
+
     this.routeCache.set(key, result);
     return result;
   }
 
-  private matchTree(tree: RadixNode, path: string): RouteMatch | null {
+  // `path` is the lowercased routing path (for key matching); `casedPath`
+  // preserves the original casing so param VALUES are not corrupted.
+  private matchTree(tree: RadixNode, path: string, casedPath: string): RouteMatch | null {
     const segments = path.split('/').filter(Boolean);
-    const params: RouteParams = {};
-    let node = tree;
+    const casedSegments = casedPath.split('/').filter(Boolean);
+    return this.matchNode(tree, segments, casedSegments, 0, {});
+  }
 
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      // Try exact match first
-      let child = node.children.get(this.routerOptions.caseSensitive ? seg : seg.toLowerCase());
-      
-      // If no exact match, try parameter match
-      if (!child) { 
-        child = node.children.get(':'); 
-        if (child?.paramName) params[child.paramName] = seg; 
-      }
-      
-      // If still no match, try wildcard
-      if (!child) {
-        child = node.children.get('*');
-        if (child?.paramName) { 
-          params[child.paramName] = segments.slice(i).join('/'); 
-          if (child.handler) return { handler: child.handler, middlewares: child.middlewares, params }; 
-        }
-      }
-      
-      if (!child) return null;
-      
-      // If this is a param node, capture the parameter value
-      if (child.isParam && child.paramName && !params[child.paramName]) {
-        params[child.paramName] = seg;
-      }
-      
-      node = child;
+  // Recursive matcher WITH backtracking: try exact child first, and if that
+  // sub-tree dead-ends, fall back to the param child, then the wildcard. This
+  // prevents a longer static route (e.g. /users/admin/settings) from shadowing
+  // a param route (/users/:id) on an intermediate path like /users/admin.
+  private matchNode(
+    node: RadixNode,
+    segments: string[],
+    casedSegments: string[],
+    i: number,
+    params: RouteParams,
+  ): RouteMatch | null {
+    if (i === segments.length) {
+      return node.handler ? { handler: node.handler, middlewares: node.middlewares, params: { ...params } } : null;
     }
-    return node.handler ? { handler: node.handler, middlewares: node.middlewares, params } : null;
+
+    const seg = segments[i];
+    const casedSeg = casedSegments[i] ?? seg;
+
+    // 1. Exact static match
+    const exact = node.children.get(this.routerOptions.caseSensitive ? seg : seg.toLowerCase());
+    if (exact) {
+      const r = this.matchNode(exact, segments, casedSegments, i + 1, params);
+      if (r) return r;
+    }
+
+    // 2. Param match (original casing preserved)
+    const paramChild = node.children.get(':');
+    if (paramChild && paramChild.paramName) {
+      const r = this.matchNode(paramChild, segments, casedSegments, i + 1, { ...params, [paramChild.paramName]: casedSeg });
+      if (r) return r;
+    }
+
+    // 3. Wildcard captures the rest of the path
+    const wildChild = node.children.get('*');
+    if (wildChild && wildChild.handler && wildChild.paramName) {
+      return {
+        handler: wildChild.handler,
+        middlewares: wildChild.middlewares,
+        params: { ...params, [wildChild.paramName]: casedSegments.slice(i).join('/') },
+      };
+    }
+
+    return null;
   }
 
   get(path: string, ...h: (MiddlewareHandler | RouteHandler | [any, string])[]): RouterInstance { this.addRoute('GET', path, resolveHandler(h.pop() as RouteHandler | [any, string]), h as MiddlewareHandler[]); return this; }

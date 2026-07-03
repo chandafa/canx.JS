@@ -40,6 +40,14 @@ export interface InjectableOptions {
    * @default Scope.DEFAULT
    */
   scope?: Scope;
+
+  /**
+   * Explicit constructor dependencies, in order. Use this for reliable
+   * constructor injection on runtimes that don't emit `design:paramtypes`
+   * (e.g. Bun): `@Injectable({ deps: [Logger, 'CONFIG'] })`.
+   * Each entry is a class, a string/symbol token, or a forwardRef.
+   */
+  deps?: any[];
 }
 
 // ============================================

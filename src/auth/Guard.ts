@@ -3,6 +3,7 @@
  * Laravel-compatible guards with TypeScript improvements
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { CanxRequest, CanxResponse, MiddlewareHandler } from '../types';
 import { SessionGuard } from './guards/SessionGuard';
 import { TokenGuard } from './guards/TokenGuard';
@@ -10,6 +11,24 @@ import { JwtGuard } from './guards/JwtGuard';
 
 // Re-export guards
 export { SessionGuard, TokenGuard, JwtGuard };
+
+// ============================================
+// Per-request auth context (prevents cross-request user leaks)
+// ============================================
+
+interface AuthContextStore {
+  request: CanxRequest | null;
+  users: Map<string, unknown>;
+}
+
+// Holds the current request's auth state. Established by the auth middleware so
+// concurrent requests never share `currentUser` on a singleton guard instance.
+const authContext = new AsyncLocalStorage<AuthContextStore>();
+
+/** Run a callback inside a fresh per-request auth context. */
+export function runInAuthContext<T>(req: CanxRequest, fn: () => T): T {
+  return authContext.run({ request: req, users: new Map() }, fn);
+}
 
 // ============================================
 // Types
@@ -95,37 +114,56 @@ export class AuthManager {
   }
 
   /**
-   * Set current request
+   * Set current request. Prefers the per-request auth context (so concurrent
+   * requests stay isolated); falls back to an instance field otherwise.
    */
   setRequest(req: CanxRequest): this {
-    this.currentRequest = req;
+    const store = authContext.getStore();
+    if (store) store.request = req;
+    else this.currentRequest = req;
     return this;
   }
 
-  /**
-   * Authenticate with guard
-   */
-  async authenticate(guardName?: string): Promise<AuthUser | null> {
-    if (!this.currentRequest) {
-      throw new Error('No request set. Call setRequest() first.');
-    }
-    
-    const guard = this.guard(guardName);
-    return guard.authenticate(this.currentRequest);
+  private getRequest(): CanxRequest | null {
+    return authContext.getStore()?.request ?? this.currentRequest;
   }
 
   /**
-   * Get current user
+   * Authenticate with guard. Result is cached in the per-request context so
+   * user()/check() return the right user even under concurrency.
+   */
+  async authenticate(guardName?: string): Promise<AuthUser | null> {
+    const req = this.getRequest();
+    if (!req) {
+      throw new Error('No request set. Call setRequest() first.');
+    }
+
+    const name = guardName || this.defaultGuard;
+    const guard = this.guard(name);
+    const user = await guard.authenticate(req);
+
+    const store = authContext.getStore();
+    if (store) store.users.set(name, user);
+    return user;
+  }
+
+  /**
+   * Get current user (from the per-request context when available).
    */
   user(guardName?: string): AuthUser | null {
-    return this.guard(guardName).user();
+    const name = guardName || this.defaultGuard;
+    const store = authContext.getStore();
+    if (store && store.users.has(name)) {
+      return (store.users.get(name) as AuthUser | null) ?? null;
+    }
+    return this.guard(name).user();
   }
 
   /**
    * Check if authenticated
    */
   check(guardName?: string): boolean {
-    return this.guard(guardName).check();
+    return this.user(guardName) !== null;
   }
 
   /**
@@ -145,16 +183,18 @@ export class AuthManager {
  */
 export function authMiddleware(guardName?: string): MiddlewareHandler {
   return async (req, res, next) => {
-    authManager.setRequest(req);
-    const user = await authManager.authenticate(guardName);
-    
-    if (user) {
-      req.user = user;
-      req.context?.set('user', user);
-      req.context?.set('guard', guardName || authManager['defaultGuard']);
-    }
-    
-    return next();
+    return runInAuthContext(req, async () => {
+      authManager.setRequest(req);
+      const user = await authManager.authenticate(guardName);
+
+      if (user) {
+        req.user = user;
+        req.context?.set('user', user);
+        req.context?.set('guard', guardName || authManager['defaultGuard']);
+      }
+
+      return next();
+    });
   };
 }
 
@@ -163,20 +203,22 @@ export function authMiddleware(guardName?: string): MiddlewareHandler {
  */
 export function requireAuth(guardName?: string): MiddlewareHandler {
   return async (req, res, next) => {
-    authManager.setRequest(req);
-    const user = await authManager.authenticate(guardName);
-    
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Unauthorized',
-        message: 'Authentication required',
-      });
-    }
-    
-    req.user = user;
-    req.context?.set('user', user);
-    return next();
+    return runInAuthContext(req, async () => {
+      authManager.setRequest(req);
+      const user = await authManager.authenticate(guardName);
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized',
+          message: 'Authentication required',
+        });
+      }
+
+      req.user = user;
+      req.context?.set('user', user);
+      return next();
+    });
   };
 }
 
@@ -185,18 +227,20 @@ export function requireAuth(guardName?: string): MiddlewareHandler {
  */
 export function guestOnly(guardName?: string): MiddlewareHandler {
   return async (req, res, next) => {
-    authManager.setRequest(req);
-    const user = await authManager.authenticate(guardName);
-    
-    if (user) {
-      return res.status(403).json({
-        success: false,
-        error: 'Forbidden',
-        message: 'Already authenticated',
-      });
-    }
-    
-    return next();
+    return runInAuthContext(req, async () => {
+      authManager.setRequest(req);
+      const user = await authManager.authenticate(guardName);
+
+      if (user) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden',
+          message: 'Already authenticated',
+        });
+      }
+
+      return next();
+    });
   };
 }
 

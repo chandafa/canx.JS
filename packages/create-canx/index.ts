@@ -78,6 +78,8 @@ function getPackageJson(options: ProjectOptions) {
     "test": 'bun test',
   };
 
+  const entry = options.language === 'typescript' ? 'ts' : 'js';
+
   if (options.type === 'mvc') {
     scripts["dev:css"] = "bunx tailwindcss -i ./src/index.css -o ./public/css/app.css --watch";
     scripts["dev"] = "concurrently \"bun run dev:server\" \"bun run dev:css\"";
@@ -89,14 +91,18 @@ function getPackageJson(options: ProjectOptions) {
     scripts["build"] = "bun run build:server";
   }
 
+  // Production start: run the source directly with Bun (no build step required)
+  scripts["start"] = `NODE_ENV=production bun run src/app.${entry}`;
+
   if (options.prisma) {
     scripts["db:migrate"] = "prisma migrate dev";
     scripts["db:studio"] = "prisma studio";
   } else {
-    // Native CanxJS Migration Scripts
+    // Native CanxJS Migration Scripts (actions are positional: migrate <action>)
     scripts["migrate"] = "bunx canx migrate";
-    scripts["migrate:rollback"] = "bunx canx migrate:rollback";
-    scripts["migrate:refresh"] = "bunx canx migrate:refresh";
+    scripts["migrate:rollback"] = "bunx canx migrate rollback";
+    scripts["migrate:fresh"] = "bunx canx migrate fresh";
+    scripts["migrate:status"] = "bunx canx migrate status";
   }
 
   // Common CLI shortcuts
@@ -104,6 +110,9 @@ function getPackageJson(options: ProjectOptions) {
   scripts["make:controller"] = "bunx canx make:controller";
   scripts["make:model"] = "bunx canx make:model";
   scripts["make:migration"] = "bunx canx make:migration";
+  scripts["make:middleware"] = "bunx canx make:middleware";
+  scripts["make:seeder"] = "bunx canx make:seeder";
+  scripts["route:list"] = "bunx canx route:list";
 
   return JSON.stringify({
     name: options.name,
@@ -1016,27 +1025,21 @@ export function Welcome({ version = '1.0.0', projectName = 'CanxJS App', project
               <div class="grid gap-4 md:grid-cols-3 mt-12">
                 <div class="spotlight-card p-6 text-left">
                   <div class="w-12 h-12 bg-gradient-to-br from-emerald-500 to-cyan-500 rounded-xl flex items-center justify-center mb-4">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                    </svg>
+                    <svg class="w-6 h-6 text-white" viewBox="0 0 24 24"><path fill="currentColor" d="m5.67 9.914l3.062-4.143c1.979-2.678 2.969-4.017 3.892-3.734s.923 1.925.923 5.21v.31c0 1.185 0 1.777.379 2.148l.02.02c.387.363 1.003.363 2.236.363c2.22 0 3.329 0 3.704.673l.018.034c.354.683-.289 1.553-1.574 3.29l-3.062 4.144c-1.98 2.678-2.969 4.017-3.892 3.734s-.923-1.925-.923-5.21v-.31c0-1.185 0-1.777-.379-2.148l-.02-.02c-.387-.363-1.003-.363-2.236-.363c-2.22 0-3.329 0-3.703-.673l-.019-.034c-.354-.683.289-1.552 1.574-3.29"></path></svg>
                   </div>
                   <h3 class="text-lg font-bold text-white mb-2">Blazing Fast</h3>
                   <p class="text-slate-400 text-sm">Ultra-fast routing with native Bun performance.</p>
                 </div>
                 <div class="spotlight-card p-6 text-left">
                   <div class="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center mb-4">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
-                    </svg>
+                    <svg class="w-6 h-6 text-white" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M3.464 3.464C2 4.93 2 7.286 2 12s0 7.071 1.464 8.535C4.93 22 7.286 22 12 22s7.071 0 8.535-1.465C22 19.072 22 16.714 22 12s0-7.071-1.465-8.536C19.072 2 16.714 2 12 2S4.929 2 3.464 3.464m10.024 2.982a.75.75 0 0 1 .53.918l-2.588 9.66a.75.75 0 0 1-1.449-.389l2.589-9.659a.75.75 0 0 1 .918-.53M14.97 8.47a.75.75 0 0 1 1.06 0l.209.208c.635.635 1.165 1.165 1.529 1.642c.384.504.654 1.036.654 1.68s-.27 1.176-.654 1.68c-.364.477-.894 1.007-1.53 1.642l-.208.208a.75.75 0 1 1-1.06-1.06l.171-.172c.682-.682 1.139-1.14 1.434-1.528c.283-.37.347-.586.347-.77s-.064-.4-.347-.77c-.295-.387-.752-.846-1.434-1.528l-.171-.172a.75.75 0 0 1 0-1.06m-7 0a.75.75 0 0 1 1.06 1.06l-.171.172c-.682.682-1.138 1.14-1.434 1.528c-.283.37-.346.586-.346.77s.063.4.346.77c.296.387.752.846 1.434 1.528l.172.172a.75.75 0 1 1-1.061 1.06l-.208-.208c-.636-.635-1.166-1.165-1.53-1.642c-.384-.504-.653-1.036-.653-1.68s.27-1.176.653-1.68c.364-.477.894-1.007 1.53-1.642z" clip-rule="evenodd"></path></svg>
                   </div>
                   <h3 class="text-lg font-bold text-white mb-2">Native JSX</h3>
                   <p class="text-slate-400 text-sm">Server-side JSX without React overhead.</p>
                 </div>
                 <div class="spotlight-card p-6 text-left">
                   <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center mb-4">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
-                    </svg>
+                    <svg class="w-6 h-6 text-white" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M3.378 5.082C3 5.62 3 7.22 3 10.417v1.574c0 5.638 4.239 8.375 6.899 9.536c.721.315 1.082.473 2.101.473c1.02 0 1.38-.158 2.101-.473C16.761 20.365 21 17.63 21 11.991v-1.574c0-3.198 0-4.797-.378-5.335c-.377-.537-1.88-1.052-4.887-2.081l-.573-.196C13.595 2.268 12.812 2 12 2s-1.595.268-3.162.805L8.265 3c-3.007 1.03-4.51 1.545-4.887 2.082M15.06 10.5a.75.75 0 0 0-1.12-.999l-3.011 3.374l-.87-.974a.75.75 0 0 0-1.118 1l1.428 1.6a.75.75 0 0 0 1.119 0z" clip-rule="evenodd"></path></svg>
                   </div>
                   <h3 class="text-lg font-bold text-white mb-2">Built-in Auth</h3>
                   <p class="text-slate-400 text-sm">Secure authentication out of the box.</p>

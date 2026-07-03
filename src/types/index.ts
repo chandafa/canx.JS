@@ -148,10 +148,13 @@ export interface Middleware {
 // Router Types
 // ============================================
 
+// A route handler may return a Response, or any value (object/array/string)
+// which the framework auto-serializes (objects/arrays -> JSON, string -> HTML),
+// or nothing (204). Mirrors Laravel controllers returning arbitrary values.
 export type RouteHandler = (
   req: CanxRequest,
   res: CanxResponse
-) => Promise<Response> | Response;
+) => Promise<Response | unknown> | Response | unknown;
 
 export interface Route {
   method: HttpMethod;
@@ -235,31 +238,51 @@ export interface ModelSchema {
   softDeletes?: boolean;
 }
 
+// Column accepts a model key (for autocomplete) OR any string (joined/raw columns).
+type Column<T> = keyof T | (string & {});
+
+export interface Paginated<T> {
+  data: T[];
+  total: number;
+  perPage: number;
+  currentPage: number;
+  lastPage: number;
+  from: number;
+  to: number;
+}
+
 export interface QueryBuilder<T> {
-  select: (...columns: (keyof T | '*')[]) => QueryBuilder<T>;
-  where: (column: keyof T, operator: string, value: unknown) => QueryBuilder<T>;
-  whereIn: (column: keyof T, values: unknown[]) => QueryBuilder<T>;
-  whereNull: (column: keyof T) => QueryBuilder<T>;
-  whereNotNull: (column: keyof T) => QueryBuilder<T>;
+  select: (...columns: (Column<T> | '*')[]) => QueryBuilder<T>;
+  where: (column: Column<T>, operator: string, value: unknown) => QueryBuilder<T>;
+  whereIn: (column: Column<T>, values: unknown[]) => QueryBuilder<T>;
+  whereNull: (column: Column<T>) => QueryBuilder<T>;
+  whereNotNull: (column: Column<T>) => QueryBuilder<T>;
   whereRaw: (sql: string, bindings?: unknown[]) => QueryBuilder<T>;
-  orWhere: (column: keyof T, operator: string, value: unknown) => QueryBuilder<T>;
-  orderBy: (column: keyof T, direction?: 'asc' | 'desc') => QueryBuilder<T>;
+  orWhere: (column: Column<T>, operator: string, value: unknown) => QueryBuilder<T>;
+  orderBy: (column: Column<T>, direction?: 'asc' | 'desc') => QueryBuilder<T>;
   limit: (count: number) => QueryBuilder<T>;
   offset: (count: number) => QueryBuilder<T>;
   join: (table: string, first: string, operator: string, second: string) => QueryBuilder<T>;
   leftJoin: (table: string, first: string, operator: string, second: string) => QueryBuilder<T>;
-  groupBy: (...columns: (keyof T)[]) => QueryBuilder<T>;
-  having: (column: keyof T, operator: string, value: unknown) => QueryBuilder<T>;
+  groupBy: (...columns: Column<T>[]) => QueryBuilder<T>;
+  having: (column: Column<T>, operator: string, value: unknown) => QueryBuilder<T>;
   get: () => Promise<T[]>;
   first: () => Promise<T | null>;
   count: () => Promise<number>;
-  sum: (column: keyof T) => Promise<number>;
-  avg: (column: keyof T) => Promise<number>;
+  sum: (column: Column<T>) => Promise<number>;
+  avg: (column: Column<T>) => Promise<number>;
+  paginate: (page?: number, perPage?: number) => Promise<Paginated<T>>;
   insert: (data: Partial<T> | Partial<T>[]) => Promise<T>;
   update: (data: Partial<T>) => Promise<number>;
   delete: () => Promise<number>;
+  forceDelete: () => Promise<number>;
+  withTrashedResults: () => QueryBuilder<T>;
   raw: (sql: string, bindings?: unknown[]) => Promise<unknown>;
   with: (...relations: string[]) => QueryBuilder<T>;
+  /** Pivot operations — only valid on belongsToMany / morphToMany relations */
+  attach: (ids: number | string | (number | string)[], pivotData?: Record<string, unknown>) => Promise<void>;
+  detach: (ids?: number | string | (number | string)[]) => Promise<void>;
+  sync: (ids: (number | string)[], pivotData?: Record<string, unknown>) => Promise<void>;
 }
 
 export interface RelationInfo {

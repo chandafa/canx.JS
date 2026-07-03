@@ -26,8 +26,12 @@ class HotWireManager {
       ...config,
     };
 
-    // Start ping interval to keep connections alive
-    if (this.config.enabled) {
+    // Ping interval starts lazily on the first client connection,
+    // so merely importing the framework does not keep the process alive.
+  }
+
+  private ensurePingInterval() {
+    if (this.config.enabled && !this.pingInterval) {
       this.pingInterval = setInterval(() => this.pingClients(), 30000);
     }
   }
@@ -36,6 +40,7 @@ class HotWireManager {
    * Create SSE stream for client
    */
   createStream(req: CanxRequest, res: CanxResponse): Response {
+    this.ensurePingInterval();
     const clientId = `hw_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const encoder = new TextEncoder();
     let controller: ReadableStreamDefaultController<Uint8Array>;

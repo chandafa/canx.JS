@@ -85,6 +85,10 @@ export function Injectable(options?: InjectableOptions): ClassDecorator {
     if (options?.scope) {
       setScopeMetadata(target, options.scope);
     }
+    // Explicit constructor deps (reliable where design:paramtypes isn't emitted).
+    if (options?.deps && Array.isArray(options.deps)) {
+      paramTypesStore.set(target, options.deps as any);
+    }
     return target;
   };
 }
@@ -145,11 +149,18 @@ export class Container {
     if (options.singleton) {
       scope = Scope.DEFAULT;
     }
-    
+
+    // An explicit `singleton` option always wins; otherwise derive from scope.
+    // This makes `factory(token, fn, { singleton: false })` truly transient
+    // (a fresh value on every resolve) instead of being cached.
+    const singleton = options.singleton !== undefined
+      ? options.singleton
+      : scope === Scope.DEFAULT;
+
     this.bindings.set(token, {
       resolver,
-      singleton: scope === Scope.DEFAULT,
-      scope,
+      singleton,
+      scope: singleton ? scope : (scope === Scope.DEFAULT ? Scope.TRANSIENT : scope),
       tags: options.tags || [],
     });
     return this;
@@ -290,10 +301,27 @@ export class Container {
   }
 
   /**
+   * Determine constructor parameter types for a target.
+   * Prefers an explicit @AutoWire declaration; otherwise falls back to TS
+   * `design:paramtypes` emitted by `emitDecoratorMetadata` (requires the app to
+   * load `reflect-metadata`). If neither is available, returns [].
+   */
+  private getConstructorParamTypes(target: any): any[] {
+    const explicit = paramTypesStore.get(target);
+    if (explicit && explicit.length) return explicit;
+    const R: any = (globalThis as any).Reflect;
+    if (R && typeof R.getMetadata === 'function') {
+      const types = R.getMetadata('design:paramtypes', target);
+      if (Array.isArray(types)) return types;
+    }
+    return [];
+  }
+
+  /**
    * Auto-resolve a class by inspecting its constructor
    */
   private async autoResolve<T>(target: Constructor<T>): Promise<T> {
-    const paramTypes = paramTypesStore.get(target) || [];
+    const paramTypes = this.getConstructorParamTypes(target);
     const injections = injectMetadataStore.get(target) || [];
 
     const dependencies = await Promise.all(
@@ -325,7 +353,7 @@ export class Container {
    * Synchronous auto-resolve
    */
   private autoResolveSync<T>(target: Constructor<T>): T {
-    const paramTypes = paramTypesStore.get(target) || [];
+    const paramTypes = this.getConstructorParamTypes(target);
     const injections = injectMetadataStore.get(target) || [];
 
     const dependencies = paramTypes.map((type: Constructor | ForwardRef, index: number) => {

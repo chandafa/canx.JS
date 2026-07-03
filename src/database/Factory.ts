@@ -89,6 +89,8 @@ export function factory<T extends Model>(model: any): Factory<T> {
 // ============================================
 
 class Faker {
+    private static _emailSeq = 0;
+
     name() {
         const first = ['John', 'Jane', 'Michael', 'Emily', 'David', 'Sarah', 'James', 'Emma'];
         const last = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis'];
@@ -97,7 +99,18 @@ class Faker {
     
     email() {
         const domains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'example.com'];
-        return `${this.slug(this.name())}@${this.pick(domains)}`;
+        // Append a unique-ish suffix so seeding many rows into a UNIQUE email
+        // column doesn't collide (the name pool is tiny).
+        Faker._emailSeq = (Faker._emailSeq + 1) % 1_000_000;
+        const suffix = Faker._emailSeq.toString(36) + this.randString(3);
+        return `${this.slug(this.name())}.${suffix}@${this.pick(domains)}`;
+    }
+
+    private randString(len: number): string {
+        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let s = '';
+        for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)];
+        return s;
     }
     
     text(length = 50) {

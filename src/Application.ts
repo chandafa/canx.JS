@@ -53,7 +53,7 @@ export class Canx implements CanxApplication {
   /**
    * Register routes
    */
-  routes(callback: (router: RouterInstance) => void): this {
+  routes(callback: (router: Router) => void): this {
     callback(this.router);
     return this;
   }
@@ -63,18 +63,26 @@ export class Canx implements CanxApplication {
    */
   controller(ControllerClass: new () => any): this {
     const instance = new ControllerClass();
-    const meta = getControllerMeta(instance);
+    // Decorators store metadata on the class PROTOTYPE (that's the `target` a
+    // method decorator receives), not on an instance. Looking it up on an
+    // instance is a WeakMap miss and silently registers zero routes.
+    const meta = getControllerMeta(ControllerClass.prototype);
 
     meta.routes.forEach((routeInfo, methodName) => {
       const path = meta.prefix + routeInfo.path;
       const handler = async (req: any, res: any) => {
-        instance.setContext(req, res);
+        // setContext only exists on BaseController subclasses; plain @Controller
+        // classes are still supported (their method receives req, res directly).
+        if (typeof instance.setContext === 'function') {
+          instance.setContext(req, res);
+        }
         return instance[methodName](req, res);
       };
 
       const method = routeInfo.method.toLowerCase() as keyof Router;
       if (typeof this.router[method] === 'function') {
-        (this.router as any)[method](path, ...routeInfo.middlewares, handler);
+        // Class-level @Middleware applies to every action.
+        (this.router as any)[method](path, ...meta.middlewares, ...routeInfo.middlewares, handler);
       }
     });
 
@@ -92,9 +100,16 @@ export class Canx implements CanxApplication {
   /**
    * Start the server
    */
-  async listen(port?: number | (() => void), callback?: () => void): Promise<void> {
+  async listen(
+    port?: number | ServerConfig | (() => void),
+    callback?: () => void,
+  ): Promise<void> {
     if (typeof port === 'function') {
       callback = port;
+      port = undefined;
+    } else if (port && typeof port === 'object') {
+      // Options-object form: app.listen({ port, hostname, development, ... })
+      this.config = { ...this.config, ...port };
       port = undefined;
     }
 
@@ -122,55 +137,56 @@ export class Canx implements CanxApplication {
     const req = createCanxRequest(rawReq);
     const res = createCanxResponse();
 
-    try {
-      // Match route
-      const match = this.router.match(req.method, req.path);
+    // Sentinel returned by the final handler when no route matched. This lets
+    // global middleware (e.g. serveStatic) run and short-circuit BEFORE we
+    // decide the request is a 404 — global middleware must run for unmatched
+    // paths, otherwise static assets could never be served.
+    const NOT_HANDLED = Symbol.for('canxjs.request.notHandled');
 
-      if (!match) {
+    try {
+      // Match route (may be null — global middleware still gets a chance)
+      const match = this.router.match(req.method, req.path);
+      if (match) {
+        Object.assign(req.params, match.params);
+      }
+
+      // Middleware order: [global pre (this.pipeline)] -> [route] -> [global post] -> handler.
+      // Global post-middleware runs after route middleware but before the terminal handler.
+      const postMiddlewares = (this.postPipeline as any).middlewares || [];
+      const routeMiddlewares = match ? [...match.middlewares, ...postMiddlewares] : [];
+
+      const finalHandler = async (): Promise<any> => {
+        if (!match) return NOT_HANDLED;
+        return match.handler(req, res);
+      };
+
+      // this.pipeline holds the global pre-middleware registered via app.use().
+      // The pipeline is typed to return Response, but handlers may return raw
+      // values (string/object) or our NOT_HANDLED sentinel, so treat as any.
+      const result: any = await this.pipeline.execute(req, res, routeMiddlewares, finalHandler);
+
+      // Nothing produced a response for an unmatched route -> surface a 404
+      // to the Server's ErrorHandler (which renders a proper 404 page).
+      if (result === NOT_HANDLED) {
         const { NotFoundException } = await import('./core/exceptions/NotFoundException');
         throw new NotFoundException(`Route not found: ${req.method} ${req.path}`);
       }
 
-      // Update params
-      Object.assign(req.params, match.params);
-
-      // Execute middleware pipeline and handler
-      // Flow: Global Pre -> Route -> Global Post -> Handler (Wait, post should be wrapped? Or appended?)
-      // Actually, if we append Post middleware to the list, they run BEFORE handler if we treat handler as terminal.
-      // But if we want them to run AFTER handler (like logging response), they must 'await next()'.
-      // But if we want them to be OUTER layers, they should be PREPENDED to the chain?
-      // No, "Post middleware" usually implies "Runs after handler returns". In onion model, that means they are the OUTERMOST layers.
-      // So app.use() (Global Pre) -> app.usePost() (Global Post).
-      // If Pre is outer, it runs first. Post is ???
-      // User request: "Global middleware yang dijalankan SETELAH route handler".
-      // If I wrap everything: PostMiddleware( PreMiddleware( RouteMiddleware( Handler ) ) )
-      // Then PostMiddleware starts first, calls next(), calls Pre... Handler returns... PostMiddleware resumes.
-      // So "Post Middleware" is just a middleware that wraps the whole stack?
-      // Or does user mean a list that is appended to route middleware?
-      // "Global middlewares selalu di-prepend ke route middleware".
-      // Implies user wants [Global, ...Route, Post].
-      // If we do that: Global(next=Route) -> Route(next=Post) -> Post(next=Handler).
-      // If Post is `(req, res, next) => { handle(); await next(); }`, then it works.
-      
-      const postMiddlewares = (this.postPipeline as any).middlewares || [];
-      const allMiddlewares = [...match.middlewares, ...postMiddlewares];
-      const result = await this.pipeline.execute(req, res, allMiddlewares, () => match.handler(req, res));
-      
       // If handler returns string (e.g., from View()), wrap in HTML Response
       if (typeof result === 'string') {
         return res.html(result);
       }
-      
+
       // If result is already a Response, return it
       if (result instanceof Response) {
         return result;
       }
-      
+
       // If result is an object/array, return as JSON
       if (result !== null && result !== undefined) {
         return res.json(result);
       }
-      
+
       // Fallback: empty 204 response
       return res.empty();
 
@@ -224,8 +240,8 @@ export class Canx implements CanxApplication {
   /**
    * Group routes with a common prefix
    */
-  group(prefix: string, callback: (router: RouterInstance) => void): this {
-    this.router.group(prefix, callback);
+  group(prefix: string, callback: (router: Router) => void): this {
+    this.router.group(prefix, callback as any);
     return this;
   }
 
@@ -234,9 +250,9 @@ export class Canx implements CanxApplication {
    * @param version - Version identifier (e.g., 'v1', 'v2')
    * @param callback - Route registration callback
    */
-  version(version: string, callback: (router: RouterInstance) => void): this {
+  version(version: string, callback: (router: Router) => void): this {
     const prefix = version.startsWith('/') ? version : '/api/' + version;
-    this.router.group(prefix, callback);
+    this.router.group(prefix, callback as any);
     return this;
   }
 }

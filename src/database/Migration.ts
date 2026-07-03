@@ -3,6 +3,13 @@
  */
 
 import { query, execute, getCurrentDriver } from '../mvc/Model';
+import type { DatabaseDriver } from '../types';
+
+// Quote an identifier for the active driver: double-quotes for Postgres,
+// backticks for MySQL/SQLite.
+function quoteId(id: string, driver: DatabaseDriver = getCurrentDriver()): string {
+  return driver === 'postgresql' ? `"${id}"` : `\`${id}\``;
+}
 
 export interface Migration {
   name: string;
@@ -38,7 +45,7 @@ interface Column {
   references?: { table: string; column: string; onDelete?: string; onUpdate?: string };
 }
 
-class TableBuilder {
+export class TableBuilder {
   private columns: Column[] = [];
   private tableName: string;
   private indices: string[] = [];
@@ -79,7 +86,7 @@ class TableBuilder {
   }
 
   decimal(name: string, precision = 10, scale = 2): this {
-    this.columns.push({ name, type: 'decimal', length: precision });
+    this.columns.push({ name, type: 'decimal', length: precision, scale } as any);
     return this;
   }
 
@@ -171,36 +178,44 @@ class TableBuilder {
   // Build SQL
   toSQL(): string {
     const driver = getCurrentDriver();
-    
+    const isPg = driver === 'postgresql';
+    const isSqlite = driver === 'sqlite';
+    const q = (id: string) => quoteId(id, driver);
+
     const cols = this.columns.map(col => {
-      let sql = `\`${col.name}\` `;
-      
+      let sql = `${q(col.name)} `;
+
       switch (col.type) {
-        case 'id': 
-          if (driver === 'sqlite') {
-             sql += 'INTEGER PRIMARY KEY AUTOINCREMENT';
-          } else {
-             sql += 'BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY'; 
-          }
+        case 'id':
+          if (isSqlite) sql += 'INTEGER PRIMARY KEY AUTOINCREMENT';
+          else if (isPg) sql += 'BIGSERIAL PRIMARY KEY';
+          else sql += 'BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
           break;
         case 'string': sql += `VARCHAR(${col.length || 255})`; break;
         case 'text': sql += 'TEXT'; break;
-        case 'int': sql += col.unsigned ? (driver === 'sqlite' ? 'INTEGER' : 'INT UNSIGNED') : 'INT'; break;
-        case 'bigint': sql += col.unsigned ? (driver === 'sqlite' ? 'INTEGER' : 'BIGINT UNSIGNED') : 'BIGINT'; break;
-        case 'float': sql += 'FLOAT'; break;
-        case 'decimal': sql += `DECIMAL(${col.length || 10}, 2)`; break;
-        case 'boolean': sql += driver === 'sqlite' ? 'INTEGER' : 'TINYINT(1)'; break;
+        case 'int': sql += isPg ? 'INTEGER' : (col.unsigned ? (isSqlite ? 'INTEGER' : 'INT UNSIGNED') : 'INT'); break;
+        case 'bigint': sql += isPg ? 'BIGINT' : (col.unsigned ? (isSqlite ? 'INTEGER' : 'BIGINT UNSIGNED') : 'BIGINT'); break;
+        case 'float': sql += isPg ? 'REAL' : 'FLOAT'; break;
+        case 'decimal': sql += `DECIMAL(${col.length || 10}, ${(col as any).scale ?? 2})`; break;
+        case 'boolean': sql += isSqlite ? 'INTEGER' : (isPg ? 'BOOLEAN' : 'TINYINT(1)'); break;
         case 'date': sql += 'DATE'; break;
-        case 'datetime': sql += 'DATETIME'; break;
+        case 'datetime': sql += isPg ? 'TIMESTAMP' : 'DATETIME'; break;
         case 'timestamp': sql += 'TIMESTAMP'; break;
-        case 'json': sql += 'JSON'; break;
-        case 'binary': sql += 'BLOB'; break;
+        case 'json': sql += isPg ? 'JSONB' : 'JSON'; break;
+        case 'binary': sql += isPg ? 'BYTEA' : 'BLOB'; break;
       }
 
       if (col.type !== 'id') {
         if (!col.nullable) sql += ' NOT NULL';
         if (col.default !== undefined) {
-          const def = typeof col.default === 'string' ? `'${col.default}'` : col.default;
+          let def: string | number;
+          if (typeof col.default === 'string') {
+            def = `'${col.default.replace(/'/g, "''")}'`;   // escape quotes
+          } else if (typeof col.default === 'boolean') {
+            def = isPg ? (col.default ? 'TRUE' : 'FALSE') : (col.default ? 1 : 0);
+          } else {
+            def = col.default as any;
+          }
           sql += ` DEFAULT ${def}`;
         }
         if (col.unique) sql += ' UNIQUE';
@@ -213,16 +228,25 @@ class TableBuilder {
     // Foreign keys
     const fks = this.columns.filter(c => c.references).map(col => {
       const ref = col.references!;
-      let fk = `FOREIGN KEY (\`${col.name}\`) REFERENCES \`${ref.table}\`(\`${ref.column}\`)`;
+      let fk = `FOREIGN KEY (${q(col.name)}) REFERENCES ${q(ref.table)}(${q(ref.column)})`;
       if (ref.onDelete) fk += ` ON DELETE ${ref.onDelete}`;
       if (ref.onUpdate) fk += ` ON UPDATE ${ref.onUpdate}`;
       return fk;
     });
-    
-    // SQLite doesn't support engine configuration
-    const suffix = driver === 'sqlite' ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4';
 
-    return `CREATE TABLE \`${this.tableName}\` (\n  ${[...cols, ...fks].join(',\n  ')}\n)${suffix}`;
+    // Only MySQL uses ENGINE/CHARSET; SQLite and Postgres reject it.
+    const suffix = driver === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4' : '';
+
+    return `CREATE TABLE ${q(this.tableName)} (\n  ${[...cols, ...fks].join(',\n  ')}\n)${suffix}`;
+  }
+
+  /** Separate CREATE INDEX statements for columns marked with .index(). */
+  toIndexSQL(): string[] {
+    const driver = getCurrentDriver();
+    const q = (id: string) => quoteId(id, driver);
+    return this.columns
+      .filter((c) => (c as any).index && !c.unique && !c.primary && c.type !== 'id')
+      .map((c) => `CREATE INDEX ${q(`idx_${this.tableName}_${c.name}`)} ON ${q(this.tableName)} (${q(c.name)})`);
   }
 }
 
@@ -236,11 +260,15 @@ export const Schema = {
     const builder = new TableBuilder(table);
     callback(builder);
     await execute(builder.toSQL());
+    // Emit any secondary indexes declared via .index()
+    for (const idxSql of builder.toIndexSQL()) {
+      await execute(idxSql);
+    }
     console.log(`[Migration] Created table: ${table}`);
   },
 
   async drop(table: string): Promise<void> {
-    await execute(`DROP TABLE IF EXISTS \`${table}\``);
+    await execute(`DROP TABLE IF EXISTS ${quoteId(table)}`);
     console.log(`[Migration] Dropped table: ${table}`);
   },
 
@@ -249,7 +277,12 @@ export const Schema = {
   },
 
   async rename(from: string, to: string): Promise<void> {
-    await execute(`RENAME TABLE \`${from}\` TO \`${to}\``);
+    const driver = getCurrentDriver();
+    // MySQL: RENAME TABLE; SQLite/Postgres: ALTER TABLE ... RENAME TO
+    const sql = driver === 'mysql'
+      ? `RENAME TABLE ${quoteId(from, driver)} TO ${quoteId(to, driver)}`
+      : `ALTER TABLE ${quoteId(from, driver)} RENAME TO ${quoteId(to, driver)}`;
+    await execute(sql);
     console.log(`[Migration] Renamed table: ${from} -> ${to}`);
   },
 
@@ -260,6 +293,10 @@ export const Schema = {
       // @ts-ignore
       return (result[0]?.count || result[0]?.['count(*)']) > 0;
     }
+    if (driver === 'postgresql') {
+      const result = await query<any>(`SELECT 1 FROM information_schema.tables WHERE table_name = ?`, [table]);
+      return result.length > 0;
+    }
     const result = await query<any>(`SHOW TABLES LIKE '${table}'`);
     return result.length > 0;
   },
@@ -269,6 +306,13 @@ export const Schema = {
     if (driver === 'sqlite') {
       const result = await query(`PRAGMA table_info(${table})`);
       return (result as any[]).some(c => c.name === column);
+    }
+    if (driver === 'postgresql') {
+      const result = await query<any>(
+        `SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?`,
+        [table, column]
+      );
+      return result.length > 0;
     }
     const result = await query<any>(`SHOW COLUMNS FROM \`${table}\` LIKE '${column}'`);
     return result.length > 0;
