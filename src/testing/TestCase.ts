@@ -299,9 +299,30 @@ export class ResponseAssertions {
 export class MockFactory<T extends Record<string, unknown>> {
   private definition: () => T;
   private states: Map<string, Partial<T>> = new Map();
+  private modelClass?: { create: (data: any) => Promise<any> };
 
-  constructor(definition: () => T) {
+  constructor(definition: () => T, modelClass?: { create: (data: any) => Promise<any> }) {
     this.definition = definition;
+    this.modelClass = modelClass;
+  }
+
+  /** Bind a model so create()/createMany() persist rows to the database. */
+  for(modelClass: { create: (data: any) => Promise<any> }): this {
+    this.modelClass = modelClass;
+    return this;
+  }
+
+  /** Build attributes AND persist a row via the bound model. Requires for(Model). */
+  async create(overrides: Partial<T> = {}, states: string[] = []): Promise<any> {
+    if (!this.modelClass) throw new Error('factory().create() requires a bound model — call factory(def, Model) or .for(Model)');
+    return this.modelClass.create(this.make(overrides, states));
+  }
+
+  /** Persist `count` rows via the bound model. */
+  async createMany(count: number, overrides: Partial<T> = {}, states: string[] = []): Promise<any[]> {
+    const out: any[] = [];
+    for (let i = 0; i < count; i++) out.push(await this.create(overrides, states));
+    return out;
   }
 
   /**
@@ -367,8 +388,8 @@ export function assertResponse(response: TestResponse): ResponseAssertions {
 /**
  * Create a mock factory
  */
-export function factory<T extends Record<string, unknown>>(definition: () => T): MockFactory<T> {
-  return new MockFactory(definition);
+export function factory<T extends Record<string, unknown>>(definition: () => T, modelClass?: { create: (data: any) => Promise<any> }): MockFactory<T> {
+  return new MockFactory(definition, modelClass);
 }
 
 /**

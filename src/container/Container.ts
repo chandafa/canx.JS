@@ -304,7 +304,8 @@ export class Container {
    * Determine constructor parameter types for a target.
    * Prefers an explicit @AutoWire declaration; otherwise falls back to TS
    * `design:paramtypes` emitted by `emitDecoratorMetadata` (requires the app to
-   * load `reflect-metadata`). If neither is available, returns [].
+   * load `reflect-metadata` — call enableAutoWiring() once at bootstrap). If
+   * neither is available, returns [].
    */
   private getConstructorParamTypes(target: any): any[] {
     const explicit = paramTypesStore.get(target);
@@ -512,6 +513,31 @@ export function singleton<T>(
 
 export function resolve<T>(token: string | symbol | Constructor<T>): Promise<T> {
   return container.resolve(token);
+}
+
+/**
+ * Enable zero-config constructor auto-wiring by loading `reflect-metadata`.
+ * Call ONCE at the very top of your entry file, and compile with tsconfig
+ * `experimentalDecorators` + `emitDecoratorMetadata` (Bun honours these). After
+ * this, `@Injectable()` classes wire their constructor dependencies from the
+ * TS types alone — no `@Injectable({ deps: [...] })` / `@AutoWire` needed.
+ *
+ * Returns true if reflect-metadata was loaded (or already present), false if the
+ * package isn't installed — in which case keep using the explicit `deps`/AutoWire
+ * form, which always works.
+ */
+export async function enableAutoWiring(): Promise<boolean> {
+  const R: any = (globalThis as any).Reflect;
+  if (R && typeof R.getMetadata === 'function') return true; // already loaded
+  try {
+    await import('reflect-metadata');
+    const R2: any = (globalThis as any).Reflect;
+    return !!(R2 && typeof R2.getMetadata === 'function');
+  } catch {
+    console.warn('[CanxJS] enableAutoWiring(): `reflect-metadata` is not installed. ' +
+      'Run `bun add reflect-metadata`, or use @Injectable({ deps: [...] }) / @AutoWire(...) instead.');
+    return false;
+  }
 }
 
 export default container;

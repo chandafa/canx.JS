@@ -7,6 +7,9 @@ import { LogDriver } from './mail/drivers/LogDriver';
 import { SmtpDriver } from './mail/drivers/SmtpDriver';
 import { SendGridDriver } from './mail/drivers/SendGridDriver';
 import { ResendDriver } from './mail/drivers/ResendDriver';
+import { MailgunDriver } from './mail/drivers/MailgunDriver';
+import { SesDriver } from './mail/drivers/SesDriver';
+import { ArrayDriver } from './mail/drivers/ArrayDriver';
 import { view as renderView } from '../mvc/View';
 
 // Re-export types for consumers
@@ -36,6 +39,14 @@ export class Mailer {
       case 'resend':
         if (!this.config.resend) throw new Error('Resend config requirement missing');
         return new ResendDriver(this.config.resend);
+      case 'mailgun':
+        if (!this.config.mailgun) throw new Error('Mailgun config requirement missing');
+        return new MailgunDriver(this.config.mailgun);
+      case 'ses':
+        if (!this.config.ses) throw new Error('SES config requirement missing');
+        return new SesDriver(this.config.ses);
+      case 'array':
+        return new ArrayDriver();
       case 'log':
       default:
         return new LogDriver();

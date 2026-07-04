@@ -256,10 +256,14 @@ export async function handleUpload(
   const directory = options.directory || 'uploads';
   const path = `${directory}/${filename}`;
 
-  // Store file
+  // Store file. Prefer a streaming put (local disk) so large uploads aren't
+  // buffered entirely in memory; fall back to a Buffer for drivers without it.
   const disk = storage.disk(options.disk);
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await disk.put(path, buffer);
+  if (typeof (disk as any).putStream === 'function') {
+    await (disk as any).putStream(path, file);
+  } else {
+    await disk.put(path, Buffer.from(await file.arrayBuffer()));
+  }
 
   return {
     path,
@@ -281,12 +285,6 @@ export async function handleMultipleUploads(
 
   for (const file of files) {
     if (file instanceof File) {
-      // Create a mock request with this single file
-      const mockFormData = new FormData();
-      mockFormData.append(fieldName, file);
-      
-      const buffer = Buffer.from(await file.arrayBuffer());
-      
       // Validate and process
       if (options.allowedTypes && !options.allowedTypes.includes(file.type)) {
         continue;
@@ -301,7 +299,11 @@ export async function handleMultipleUploads(
       const path = `${directory}/${filename}`;
 
       const disk = storage.disk(options.disk);
-      await disk.put(path, buffer);
+      if (typeof (disk as any).putStream === 'function') {
+        await (disk as any).putStream(path, file);
+      } else {
+        await disk.put(path, Buffer.from(await file.arrayBuffer()));
+      }
 
       results.push({
         path,

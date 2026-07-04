@@ -2,6 +2,7 @@
  * CanxJS Model - Zero-config ORM with MySQL primary, PostgreSQL secondary
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { DatabaseConfig, DatabaseDriver, ModelField, ModelSchema, QueryBuilder, CastType } from '../types';
 
 // Database connection state.
@@ -12,8 +13,17 @@ interface DbState {
   mysqlPool: any;
   pgPool: any;
   sqliteDb: any;
+  // Optional dedicated read-replica pools. When configured, SELECT queries that
+  // run OUTSIDE a transaction are routed here; all writes and transactional
+  // reads stay on the primary (write) pool for read-your-writes consistency.
+  readMysqlPool: any;
+  readPgPool: any;
   currentDriver: DatabaseDriver;
   dbConfig: DatabaseConfig | null;
+  // A single process-wide manual transaction connection (set by the argument-
+  // less beginTransaction()/commit()/rollBack() API). The callback form of
+  // `transaction()` uses AsyncLocalStorage instead and is concurrency-safe.
+  manualTx: { driver: DatabaseDriver; conn: any } | null;
 }
 
 const DB_STATE_KEY = Symbol.for('canxjs.database.state');
@@ -21,9 +31,27 @@ const dbState: DbState = ((globalThis as any)[DB_STATE_KEY] ??= {
   mysqlPool: null,
   pgPool: null,
   sqliteDb: null,
+  readMysqlPool: null,
+  readPgPool: null,
   currentDriver: 'mysql',
   dbConfig: null,
+  manualTx: null,
 } satisfies DbState);
+
+// Per-async-context transaction connection. When a `transaction(cb)` is active,
+// every query/execute inside the callback (across await points) transparently
+// runs on this dedicated connection so it participates in the transaction.
+interface TxContext { driver: DatabaseDriver; conn: any; }
+const txStorage = new AsyncLocalStorage<TxContext>();
+// Monotonic counter for unique savepoint names on nested transactions.
+let savepointCounter = 0;
+
+// In-process query result cache backing QueryBuilder.remember().
+const QUERY_CACHE_KEY = Symbol.for('canxjs.query.cache');
+const queryCache: Map<string, { value: any; expires: number }> =
+  ((globalThis as any)[QUERY_CACHE_KEY] ??= new Map());
+/** Clear all cached query results (invalidate everything set via remember()). */
+export function flushQueryCache(): void { queryCache.clear(); }
 
 // Registry of model classes keyed by class name, used to resolve the related
 // class for polymorphic `morphTo` relations (the `<name>_type` column stores
@@ -53,6 +81,22 @@ export async function initDatabase(config: DatabaseConfig): Promise<void> {
       queueLimit: 0,
     });
 
+    // Optional read replica(s). `config.read` may be a single host config or an
+    // array; we build one pool over all of them (mysql2 balances internally).
+    if (config.read) {
+      const reads = Array.isArray(config.read) ? config.read : [config.read];
+      dbState.readMysqlPool = mysql.createPool({
+        host: reads[0]!.host || 'localhost',
+        port: reads[0]!.port || 3306,
+        database: reads[0]!.database || config.database,
+        user: reads[0]!.username || config.username,
+        password: reads[0]!.password ?? config.password,
+        waitForConnections: true,
+        connectionLimit: config.pool?.max || 10,
+        queueLimit: 0,
+      });
+    }
+
     if (config.logging) console.log('[CanxJS] MySQL connection pool created');
   } else if (config.driver === 'postgresql') {
     const { Pool } = await import('pg');
@@ -66,6 +110,19 @@ export async function initDatabase(config: DatabaseConfig): Promise<void> {
       idleTimeoutMillis: config.pool?.idle || 30000,
     });
 
+    if (config.read) {
+      const reads = Array.isArray(config.read) ? config.read : [config.read];
+      dbState.readPgPool = new Pool({
+        host: reads[0]!.host || 'localhost',
+        port: reads[0]!.port || 5432,
+        database: reads[0]!.database || config.database,
+        user: reads[0]!.username || config.username,
+        password: reads[0]!.password ?? config.password,
+        max: config.pool?.max || 10,
+        idleTimeoutMillis: config.pool?.idle || 30000,
+      });
+    }
+
     if (config.logging) console.log('[CanxJS] PostgreSQL connection pool created');
   } else if (config.driver === 'sqlite') {
     const { Database } = await import('bun:sqlite');
@@ -78,6 +135,8 @@ export async function initDatabase(config: DatabaseConfig): Promise<void> {
 export async function closeDatabase(): Promise<void> {
   if (dbState.mysqlPool) { await dbState.mysqlPool.end(); dbState.mysqlPool = null; }
   if (dbState.pgPool) { await dbState.pgPool.end(); dbState.pgPool = null; }
+  if (dbState.readMysqlPool) { await dbState.readMysqlPool.end(); dbState.readMysqlPool = null; }
+  if (dbState.readPgPool) { await dbState.readPgPool.end(); dbState.readPgPool = null; }
   if (dbState.sqliteDb) { dbState.sqliteDb.close(); dbState.sqliteDb = null; }
 }
 
@@ -85,50 +144,217 @@ export function getCurrentDriver(): DatabaseDriver {
   return dbState.currentDriver;
 }
 
+// mysql2 rejects `undefined` bind params ("must not contain undefined"). Map
+// any undefined to SQL NULL so a stray undefined never crashes a query.
+function sanitizeParams(params: any[]): any[] {
+  return params.map((p) => (p === undefined ? null : p));
+}
+
+// Resolve which connection a statement should run on:
+//   1. an active AsyncLocalStorage transaction (callback form), else
+//   2. a process-wide manual transaction, else
+//   3. the pool. For reads, a configured read replica is preferred.
+function activeTx(): { driver: DatabaseDriver; conn: any } | null {
+  return txStorage.getStore() || dbState.manualTx || null;
+}
+
 async function query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+  params = sanitizeParams(params);
   if (dbState.dbConfig?.logging) console.log('[SQL]', sql, params);
 
-  if (dbState.currentDriver === 'mysql' && dbState.mysqlPool) {
-    const [rows] = await dbState.mysqlPool.execute(sql, params);
+  const tx = activeTx();
+
+  if (dbState.currentDriver === 'mysql') {
+    // Read replica only for non-transactional reads (read-your-writes safety).
+    const conn = tx?.conn || dbState.readMysqlPool || dbState.mysqlPool;
+    if (!conn) throw new Error('No database connection');
+    const [rows] = await conn.execute(sql, params);
     return rows as T[];
-  } else if (dbState.currentDriver === 'postgresql' && dbState.pgPool) {
+  } else if (dbState.currentDriver === 'postgresql') {
+    const conn = tx?.conn || dbState.readPgPool || dbState.pgPool;
+    if (!conn) throw new Error('No database connection');
     // Convert ? placeholders to $1, $2 for PostgreSQL
     let idx = 0;
     const pgSql = sql.replace(/\?/g, () => `$${++idx}`);
-    const result = await dbState.pgPool.query(pgSql, params);
+    const result = await conn.query(pgSql, params);
     return result.rows as T[];
-  } else if (dbState.currentDriver === 'sqlite' && dbState.sqliteDb) {
-    const query = dbState.sqliteDb.query(sql);
-    // bun:sqlite uses $1, $2 or named params, but handle simple ? for compatibility?
-    // Bun sqlite actually supports ? binding since recent versions or via .all(...params)
-    // Let's try direct binding.
+  } else if (dbState.currentDriver === 'sqlite') {
+    const db = tx?.conn || dbState.sqliteDb;
+    if (!db) throw new Error('No database connection');
+    const query = db.query(sql);
     return query.all(...params) as T[];
   }
   throw new Error('No database connection');
 }
 
 async function execute(sql: string, params: any[] = []): Promise<{ affectedRows: number; insertId: number }> {
+  params = sanitizeParams(params);
   if (dbState.dbConfig?.logging) console.log('[SQL]', sql, params);
 
-  if (dbState.currentDriver === 'mysql' && dbState.mysqlPool) {
-    const [result] = await dbState.mysqlPool.execute(sql, params);
+  const tx = activeTx();
+
+  if (dbState.currentDriver === 'mysql') {
+    const conn = tx?.conn || dbState.mysqlPool;
+    if (!conn) throw new Error('No database connection');
+    const [result] = await conn.execute(sql, params);
     return { affectedRows: result.affectedRows, insertId: result.insertId };
-  } else if (dbState.currentDriver === 'postgresql' && dbState.pgPool) {
+  } else if (dbState.currentDriver === 'postgresql') {
+    const conn = tx?.conn || dbState.pgPool;
+    if (!conn) throw new Error('No database connection');
     let idx = 0;
     const pgSql = sql.replace(/\?/g, () => `$${++idx}`);
     // Only INSERTs need RETURNING (to get the new id). Appending it to DDL
     // (CREATE/DROP/ALTER) or UPDATE/DELETE is a Postgres syntax error.
     const isInsert = /^\s*insert\b/i.test(pgSql);
     const finalSql = isInsert ? `${pgSql} RETURNING *` : pgSql;
-    const result = await dbState.pgPool.query(finalSql, params);
+    const result = await conn.query(finalSql, params);
     return { affectedRows: result.rowCount || 0, insertId: result.rows?.[0]?.id || 0 };
-  } else if (dbState.currentDriver === 'sqlite' && dbState.sqliteDb) {
-    const query = dbState.sqliteDb.query(sql);
+  } else if (dbState.currentDriver === 'sqlite') {
+    const db = tx?.conn || dbState.sqliteDb;
+    if (!db) throw new Error('No database connection');
+    const query = db.query(sql);
     const result = query.run(...params);
     return { affectedRows: result.changes, insertId: result.lastInsertRowid };
   }
   throw new Error('No database connection');
 }
+
+// Run a raw statement on a specific transaction connection (driver-aware).
+async function runOnConn(tx: TxContext, sql: string): Promise<void> {
+  if (tx.driver === 'mysql') await tx.conn.query(sql);
+  else if (tx.driver === 'postgresql') await tx.conn.query(sql);
+  else if (tx.driver === 'sqlite') tx.conn.run(sql);
+}
+
+/**
+ * Run `cb` inside a database transaction. Every query/execute performed within
+ * the callback (across await points) runs on a single dedicated connection and
+ * is committed atomically, or rolled back if `cb` throws. Nested calls use
+ * SAVEPOINTs so an inner failure only rolls back the inner block.
+ *
+ * @example
+ *   await transaction(async () => {
+ *     await Account.query().where('id','=',1).update({ balance: 900 });
+ *     await Account.query().where('id','=',2).update({ balance: 1100 });
+ *   });
+ */
+export async function transaction<T>(cb: () => Promise<T>): Promise<T> {
+  const driver = dbState.currentDriver;
+
+  // Already inside a transaction → use a SAVEPOINT for partial rollback.
+  const existing = txStorage.getStore() || dbState.manualTx;
+  if (existing) {
+    const sp = `canx_sp_${++savepointCounter}`;
+    await runOnConn(existing, `SAVEPOINT ${sp}`);
+    try {
+      const result = await cb();
+      await runOnConn(existing, `RELEASE SAVEPOINT ${sp}`);
+      return result;
+    } catch (e) {
+      await runOnConn(existing, `ROLLBACK TO SAVEPOINT ${sp}`);
+      throw e;
+    }
+  }
+
+  if (driver === 'mysql') {
+    if (!dbState.mysqlPool) throw new Error('No database connection');
+    const conn = await dbState.mysqlPool.getConnection();
+    const ctx: TxContext = { driver, conn };
+    try {
+      await conn.beginTransaction();
+      const result = await txStorage.run(ctx, cb);
+      await conn.commit();
+      return result;
+    } catch (e) {
+      try { await conn.rollback(); } catch {}
+      throw e;
+    } finally {
+      conn.release();
+    }
+  } else if (driver === 'postgresql') {
+    if (!dbState.pgPool) throw new Error('No database connection');
+    const client = await dbState.pgPool.connect();
+    const ctx: TxContext = { driver, conn: client };
+    try {
+      await client.query('BEGIN');
+      const result = await txStorage.run(ctx, cb);
+      await client.query('COMMIT');
+      return result;
+    } catch (e) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw e;
+    } finally {
+      client.release();
+    }
+  } else if (driver === 'sqlite') {
+    const db = dbState.sqliteDb;
+    if (!db) throw new Error('No database connection');
+    const ctx: TxContext = { driver, conn: db };
+    db.run('BEGIN');
+    try {
+      const result = await txStorage.run(ctx, cb);
+      db.run('COMMIT');
+      return result;
+    } catch (e) {
+      try { db.run('ROLLBACK'); } catch {}
+      throw e;
+    }
+  }
+  throw new Error('No database connection');
+}
+
+/**
+ * Begin a process-wide manual transaction. Pair with commit()/rollBack().
+ * NOTE: this shares one connection globally and is NOT safe under concurrent
+ * requests — prefer the callback form `transaction(cb)` in server code. This
+ * form exists for scripts, seeders and REPL use.
+ */
+export async function beginTransaction(): Promise<void> {
+  if (dbState.manualTx) throw new Error('A manual transaction is already active');
+  const driver = dbState.currentDriver;
+  if (driver === 'mysql') {
+    const conn = await dbState.mysqlPool.getConnection();
+    await conn.beginTransaction();
+    dbState.manualTx = { driver, conn };
+  } else if (driver === 'postgresql') {
+    const client = await dbState.pgPool.connect();
+    await client.query('BEGIN');
+    dbState.manualTx = { driver, conn: client };
+  } else if (driver === 'sqlite') {
+    dbState.sqliteDb.run('BEGIN');
+    dbState.manualTx = { driver, conn: dbState.sqliteDb };
+  } else {
+    throw new Error('No database connection');
+  }
+}
+
+export async function commit(): Promise<void> {
+  const tx = dbState.manualTx;
+  if (!tx) throw new Error('No active manual transaction');
+  dbState.manualTx = null;
+  if (tx.driver === 'mysql') { await tx.conn.commit(); tx.conn.release(); }
+  else if (tx.driver === 'postgresql') { await tx.conn.query('COMMIT'); tx.conn.release(); }
+  else if (tx.driver === 'sqlite') { tx.conn.run('COMMIT'); }
+}
+
+export async function rollBack(): Promise<void> {
+  const tx = dbState.manualTx;
+  if (!tx) throw new Error('No active manual transaction');
+  dbState.manualTx = null;
+  if (tx.driver === 'mysql') { await tx.conn.rollback(); tx.conn.release(); }
+  else if (tx.driver === 'postgresql') { await tx.conn.query('ROLLBACK'); tx.conn.release(); }
+  else if (tx.driver === 'sqlite') { tx.conn.run('ROLLBACK'); }
+}
+
+/** Laravel-style DB facade for transactions and raw access. */
+export const DB = {
+  transaction,
+  beginTransaction,
+  commit,
+  rollBack,
+  raw: (sql: string, bindings: any[] = []) => query(sql, bindings),
+  statement: (sql: string, bindings: any[] = []) => execute(sql, bindings),
+};
 
 // Relation Metadata interface
 interface RelationInfo {
@@ -236,7 +462,11 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
   private groupClauses: string[] = [];
   private havingClauses: string[] = [];
   private bindings: any[] = [];
-  
+  private lockMode?: 'update' | 'share';
+  // Query result cache (remember): ttl in seconds + optional explicit key.
+  private rememberTtl?: number;
+  private rememberKey?: string;
+
   // Model mapping
   private modelClass?: any;
   private withTrashed: boolean = false;
@@ -255,7 +485,25 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
 
   select(...cols: any[]): this { this.selectCols = cols.length ? cols : ['*']; return this; }
   
-  where(col: any, op: string, val: any): this {
+  // Nested condition group: where(q => q.where(...).orWhere(...)) → (a OR b).
+  private addNested(boolean: 'AND' | 'OR', cb: (q: QueryBuilderImpl<T>) => void): this {
+    const sub = new QueryBuilderImpl<T>(this.table, this.modelClass);
+    cb(sub);
+    const body = sub.whereClauses
+      .map((c, i) => (i === 0 ? c.sql : `${c.boolean} ${c.sql}`))
+      .join(' ');
+    if (body) {
+      this.whereClauses.push({ boolean, sql: `(${body})` });
+      this.bindings.push(...sub.bindings);
+    }
+    return this;
+  }
+
+  where(col: any, op?: any, val?: any): this {
+    // where(callback) → nested condition group.
+    if (typeof col === 'function') return this.addNested('AND', col);
+    // where(col, val) shorthand → where(col, '=', val).
+    if (val === undefined && op !== undefined) { val = op; op = '='; }
     // Security: validate column name AND operator (both interpolated into SQL)
     assertIdentifier(col, 'column name');
     assertOperator(op);
@@ -264,9 +512,13 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
     return this;
   }
 
-  whereIn(col: any, vals: any[]): this {
-    if (typeof col === 'string' && !/^[a-zA-Z0-9_\.]+$/.test(col)) {
-        throw new Error(`Invalid column name: ${col}`);
+  whereIn(col: any, vals: any): this {
+    assertIdentifier(col, 'column name');
+    // Subquery form: whereIn('id', User.query().select('id').where(...)).
+    if (vals instanceof QueryBuilderImpl) {
+      this.whereClauses.push({ boolean: 'AND', sql: `${String(col)} IN (${vals.buildSelect()})` });
+      this.bindings.push(...vals.bindings);
+      return this;
     }
     if (vals.length === 0) {
        this.whereClauses.push({ boolean: 'AND', sql: '1 = 0' }); // False condition if empty
@@ -277,22 +529,148 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
     return this;
   }
 
+  whereNotIn(col: any, vals: any): this {
+    assertIdentifier(col, 'column name');
+    if (vals instanceof QueryBuilderImpl) {
+      this.whereClauses.push({ boolean: 'AND', sql: `${String(col)} NOT IN (${vals.buildSelect()})` });
+      this.bindings.push(...vals.bindings);
+      return this;
+    }
+    if (vals.length === 0) return this; // NOT IN () excludes nothing
+    this.whereClauses.push({ boolean: 'AND', sql: `${String(col)} NOT IN (${vals.map(() => '?').join(',')})` });
+    this.bindings.push(...vals);
+    return this;
+  }
+
+  orWhereIn(col: any, vals: any[]): this {
+    assertIdentifier(col, 'column name');
+    if (vals.length === 0) { this.whereClauses.push({ boolean: 'OR', sql: '1 = 0' }); return this; }
+    this.whereClauses.push({ boolean: 'OR', sql: `${String(col)} IN (${vals.map(() => '?').join(',')})` });
+    this.bindings.push(...vals);
+    return this;
+  }
+
+  whereBetween(col: any, range: [any, any]): this {
+    assertIdentifier(col, 'column name');
+    this.whereClauses.push({ boolean: 'AND', sql: `${String(col)} BETWEEN ? AND ?` });
+    this.bindings.push(range[0], range[1]);
+    return this;
+  }
+
+  whereNotBetween(col: any, range: [any, any]): this {
+    assertIdentifier(col, 'column name');
+    this.whereClauses.push({ boolean: 'AND', sql: `${String(col)} NOT BETWEEN ? AND ?` });
+    this.bindings.push(range[0], range[1]);
+    return this;
+  }
+
   whereNull(col: any): this {
-    if (typeof col === 'string' && !/^[a-zA-Z0-9_\.]+$/.test(col)) throw new Error(`Invalid column name: ${col}`);
+    assertIdentifier(col, 'column name');
     this.whereClauses.push({ boolean: 'AND', sql: `${String(col)} IS NULL` }); return this;
   }
   whereNotNull(col: any): this {
-    if (typeof col === 'string' && !/^[a-zA-Z0-9_\.]+$/.test(col)) throw new Error(`Invalid column name: ${col}`);
+    assertIdentifier(col, 'column name');
     this.whereClauses.push({ boolean: 'AND', sql: `${String(col)} IS NOT NULL` }); return this;
   }
+  orWhereNull(col: any): this {
+    assertIdentifier(col, 'column name');
+    this.whereClauses.push({ boolean: 'OR', sql: `${String(col)} IS NULL` }); return this;
+  }
+  orWhereNotNull(col: any): this {
+    assertIdentifier(col, 'column name');
+    this.whereClauses.push({ boolean: 'OR', sql: `${String(col)} IS NOT NULL` }); return this;
+  }
 
-  orWhere(col: any, op: string, val: any): this {
+  orWhere(col: any, op?: any, val?: any): this {
+    if (typeof col === 'function') return this.addNested('OR', col);
+    if (val === undefined && op !== undefined) { val = op; op = '='; }
     assertIdentifier(col, 'column name');
     assertOperator(op);
     // Push with an OR connector; SQL precedence groups `a AND b OR c` as
     // `(a AND b) OR c`, matching Laravel — no manual paren-wrapping needed.
     this.whereClauses.push({ boolean: 'OR', sql: `${String(col)} ${op} ?` });
     this.bindings.push(val);
+    return this;
+  }
+
+  // ============================
+  // whereHas — filter by relation existence via correlated EXISTS subquery.
+  // ============================
+  private relationInfoFor(name: string): RelationInfo {
+    if (!this.modelClass) throw new Error('whereHas requires a model-bound query');
+    const inst = new this.modelClass();
+    if (typeof inst[name] !== 'function') {
+      throw new Error(`Relation '${name}' not found on ${this.modelClass.name}`);
+    }
+    const relQb = inst[name]();
+    const info = (relQb as any)._relationInfo as RelationInfo;
+    if (!info) throw new Error(`'${name}' did not return a relation`);
+    return info;
+  }
+
+  private addHasClause(
+    name: string,
+    cb: ((q: QueryBuilderImpl<any>) => void) | undefined,
+    boolean: 'AND' | 'OR',
+    negate: boolean,
+  ): this {
+    const info = this.relationInfoFor(name);
+    const related = info.relatedClass;
+    const relatedTable = related?.tableName || related?.name;
+    const parent = this.table;
+    const sub = new QueryBuilderImpl<any>(relatedTable, related);
+
+    let from = relatedTable;
+    let correlate = '';
+    const pivotBindings: any[] = [];
+
+    if (info.type === 'hasMany' || info.type === 'hasOne') {
+      correlate = `${relatedTable}.${info.foreignKey} = ${parent}.${info.localKey || 'id'}`;
+    } else if (info.type === 'belongsTo') {
+      correlate = `${relatedTable}.${info.ownerKey || 'id'} = ${parent}.${info.foreignKey}`;
+    } else if (info.type === 'morphMany' || info.type === 'morphOne') {
+      correlate = `${relatedTable}.${(info as any).morphId} = ${parent}.${info.localKey || 'id'} AND ${relatedTable}.${(info as any).morphType} = '${this.modelClass.name}'`;
+    } else if (info.type === 'belongsToMany') {
+      const pivot = info.pivotTable!;
+      from = `${relatedTable}, ${pivot}`;
+      correlate = `${pivot}.${info.foreignPivotKey} = ${parent}.id AND ${pivot}.${info.relatedPivotKey} = ${relatedTable}.id`;
+      for (const [k, v] of Object.entries((info as any).pivotDefaults || {})) {
+        correlate += ` AND ${pivot}.${k} = ?`;
+        pivotBindings.push(v);
+      }
+    } else {
+      throw new Error(`whereHas does not support relation type '${info.type}'`);
+    }
+
+    if (cb) cb(sub);
+    const subBody = sub.compileWhereBody();
+
+    let inner = `SELECT 1 FROM ${from} WHERE ${correlate}`;
+    if (subBody.sql) inner += ` AND ${subBody.sql}`;
+
+    this.whereClauses.push({ boolean, sql: `${negate ? 'NOT ' : ''}EXISTS (${inner})` });
+    // Binding order must match placeholder order: pivot defaults, then sub-where.
+    this.bindings.push(...pivotBindings, ...subBody.bindings);
+    return this;
+  }
+
+  whereHas(name: string, cb?: (q: QueryBuilderImpl<any>) => void): this {
+    return this.addHasClause(name, cb, 'AND', false);
+  }
+  orWhereHas(name: string, cb?: (q: QueryBuilderImpl<any>) => void): this {
+    return this.addHasClause(name, cb, 'OR', false);
+  }
+  whereDoesntHave(name: string, cb?: (q: QueryBuilderImpl<any>) => void): this {
+    return this.addHasClause(name, cb, 'AND', true);
+  }
+  orWhereDoesntHave(name: string, cb?: (q: QueryBuilderImpl<any>) => void): this {
+    return this.addHasClause(name, cb, 'OR', true);
+  }
+
+  /** Cache this query's results in-process for `seconds`. Optional explicit key. */
+  remember(seconds: number, key?: string): this {
+    this.rememberTtl = seconds;
+    this.rememberKey = key;
     return this;
   }
 
@@ -361,13 +739,13 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
     return this.whereClauses.some((c, i) => i > 0 && c.boolean === 'OR');
   }
 
-  private buildSelect(): string {
-    let sql = `SELECT ${this.selectCols.join(', ')} FROM ${this.table}`;
-    if (this.joinClauses.length) sql += ' ' + this.joinClauses.join(' ');
-
+  /**
+   * Compile the WHERE body (user clauses + soft-delete scope) without the
+   * `WHERE` keyword. Shared by buildSelect() and correlated whereHas subqueries.
+   */
+  compileWhereBody(): { sql: string; bindings: any[] } {
     const userWhere = this.whereClauses.length ? this.buildWhere() : '';
 
-    // Soft Deletes Scope
     let softDelete = '';
     if (this.modelClass && (this.modelClass as any).softDeletes && !this.withTrashed) {
        const deletedAtCol = (this.modelClass as any).deletedAtColumn || 'deleted_at';
@@ -380,40 +758,124 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
        }
     }
 
+    let sql = '';
     if (userWhere && softDelete) {
       // Wrap user clauses so a global AND doesn't bind only to a trailing OR
-      // branch: `WHERE (a AND b OR c) AND deleted_at IS NULL`.
+      // branch: `(a AND b OR c) AND deleted_at IS NULL`.
       const wrapped = this.hasOrClause() ? `(${userWhere})` : userWhere;
-      sql += ` WHERE ${wrapped} AND ${softDelete}`;
+      sql = `${wrapped} AND ${softDelete}`;
     } else if (userWhere) {
-      sql += ` WHERE ${userWhere}`;
+      sql = userWhere;
     } else if (softDelete) {
-      sql += ` WHERE ${softDelete}`;
+      sql = softDelete;
     }
+    return { sql, bindings: this.bindings };
+  }
+
+  buildSelect(): string {
+    let sql = `SELECT ${this.selectCols.join(', ')} FROM ${this.table}`;
+    if (this.joinClauses.length) sql += ' ' + this.joinClauses.join(' ');
+
+    const where = this.compileWhereBody().sql;
+    if (where) sql += ` WHERE ${where}`;
 
     if (this.groupClauses.length) sql += ' GROUP BY ' + this.groupClauses.join(', ');
     if (this.havingClauses.length) sql += ' HAVING ' + this.havingClauses.join(' AND ');
     if (this.orderClauses.length) sql += ' ORDER BY ' + this.orderClauses.join(', ');
     if (this.limitVal !== undefined) sql += ` LIMIT ${this.limitVal}`;
     if (this.offsetVal !== undefined) sql += ` OFFSET ${this.offsetVal}`;
+
+    // Pessimistic locking (ignored on SQLite, which has no row-level locks).
+    if (this.lockMode) {
+      const driver = getCurrentDriver();
+      if (driver !== 'sqlite') {
+        if (this.lockMode === 'update') sql += ' FOR UPDATE';
+        else sql += driver === 'postgresql' ? ' FOR SHARE' : ' LOCK IN SHARE MODE';
+      }
+    }
     return sql;
   }
 
-  async get(): Promise<T[]> { 
+  /** Pessimistic write lock: SELECT ... FOR UPDATE. Use inside a transaction. */
+  lockForUpdate(): this { this.lockMode = 'update'; return this; }
+  /** Pessimistic shared lock: FOR SHARE / LOCK IN SHARE MODE. Use inside a transaction. */
+  sharedLock(): this { this.lockMode = 'share'; return this; }
+
+  async get(): Promise<T[]> {
+    // Query result cache (remember): serve from cache when still fresh.
+    if (this.rememberTtl !== undefined) {
+      const key = this.rememberKey || `${this.buildSelect()}::${JSON.stringify(this.bindings)}`;
+      const hit = queryCache.get(key);
+      if (hit && hit.expires > Date.now()) return hit.value as T[];
+      const fresh = await this.runGet();
+      queryCache.set(key, { value: fresh, expires: Date.now() + this.rememberTtl * 1000 });
+      return fresh;
+    }
+    return this.runGet();
+  }
+
+  private async runGet(): Promise<T[]> {
     const rows = await query<any>(this.buildSelect(), this.bindings);
     let results: T[] = rows as T[];
-    
+
     if (this.modelClass) {
       // Hydration from the database bypasses mass-assignment protection
       results = rows.map(r => new this.modelClass().forceFill(r));
     }
-    
+
     // Process Eager Loading
     if (this.withRelations.length > 0 && this.modelClass && results.length > 0) {
       await this.eagerLoad(results);
     }
-    
+
     return results;
+  }
+
+  /**
+   * Process results in fixed-size batches without loading the whole table.
+   * Return `false` from the callback to stop early.
+   */
+  async chunk(size: number, cb: (rows: T[], page: number) => any): Promise<void> {
+    let page = 1;
+    for (;;) {
+      const prevL = this.limitVal, prevO = this.offsetVal;
+      this.limitVal = size;
+      this.offsetVal = (page - 1) * size;
+      let rows: T[];
+      try { rows = await this.runGet(); } finally { this.limitVal = prevL; this.offsetVal = prevO; }
+      if (rows.length === 0) break;
+      const cont = await cb(rows, page);
+      if (cont === false) break;
+      if (rows.length < size) break;
+      page++;
+    }
+  }
+
+  /** Async iterator over the full result set, fetched in pages of `size`. */
+  async *cursor(size: number = 1000): AsyncGenerator<T> {
+    let page = 1;
+    for (;;) {
+      const prevL = this.limitVal, prevO = this.offsetVal;
+      this.limitVal = size;
+      this.offsetVal = (page - 1) * size;
+      let rows: T[];
+      try { rows = await this.runGet(); } finally { this.limitVal = prevL; this.offsetVal = prevO; }
+      if (rows.length === 0) break;
+      for (const r of rows) yield r;
+      if (rows.length < size) break;
+      page++;
+    }
+  }
+
+  /** Alias of cursor(): `for await (const row of Model.query().lazy()) {}`. */
+  lazy(size: number = 1000): AsyncGenerator<T> { return this.cursor(size); }
+
+  /** Iterate primary-key ordered pages (stable pagination for mutating scans). */
+  async each(cb: (row: T) => any, size: number = 1000): Promise<void> {
+    for await (const row of this.cursor(size)) {
+      const cont = await cb(row);
+      if (cont === false) break;
+    }
   }
   
   async eagerLoad(results: any[]) {
@@ -645,39 +1107,83 @@ export class QueryBuilderImpl<T> implements QueryBuilder<T> {
   async count(): Promise<number> { return this.runAggregate('COUNT(*) as agg'); }
   async sum(col: any): Promise<number> { assertIdentifier(col, 'column'); return this.runAggregate(`SUM(${String(col)}) as agg`); }
   async avg(col: any): Promise<number> { assertIdentifier(col, 'column'); return this.runAggregate(`AVG(${String(col)}) as agg`); }
+  async min(col: any): Promise<number> { assertIdentifier(col, 'column'); return this.runAggregate(`MIN(${String(col)}) as agg`); }
+  async max(col: any): Promise<number> { assertIdentifier(col, 'column'); return this.runAggregate(`MAX(${String(col)}) as agg`); }
+  /** True if any row matches the current constraints. */
+  async exists(): Promise<boolean> { return (await this.count()) > 0; }
+
+  // Apply auto-timestamps + cast serialization to a set of insert rows.
+  private prepInsertItems(items: any[]): any[] {
+    if (this.modelClass && (this.modelClass as any).timestamps) {
+      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      const createdAt = (this.modelClass as any).createdAtColumn || 'created_at';
+      const updatedAt = (this.modelClass as any).updatedAtColumn || 'updated_at';
+      items = items.map(item => ({
+        ...item,
+        [createdAt]: item[createdAt] || now,
+        [updatedAt]: item[updatedAt] || now,
+      }));
+    }
+    if (this.modelClass) {
+      items = items.map(item => prepareForStorage(this.modelClass, item));
+    }
+    return items;
+  }
 
   async insert(data: Partial<T> | Partial<T>[]): Promise<T> {
-    let items = Array.isArray(data) ? data : [data];
-    
-    // Auto-timestamps
-    if (this.modelClass && (this.modelClass as any).timestamps) {
-        const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-        const createdAt = (this.modelClass as any).createdAtColumn || 'created_at';
-        const updatedAt = (this.modelClass as any).updatedAtColumn || 'updated_at';
-        
-        items = items.map(item => ({
-            ...item,
-            [createdAt]: (item as any)[createdAt] || now,
-            [updatedAt]: (item as any)[updatedAt] || now,
-        }));
-    }
-
-    // Serialize cast columns (json/bool/date) so QueryBuilder.insert() matches
-    // Model.create() behavior. Idempotent, so double-preparing is harmless.
-    if (this.modelClass) {
-      items = items.map(item => prepareForStorage(this.modelClass, item as any)) as any;
-    }
-
+    const items = this.prepInsertItems(Array.isArray(data) ? data : [data]);
     const keys = Object.keys(items[0]!);
     const values = items.map(item => keys.map(k => (item as any)[k]));
     const placeholders = values.map(() => `(${keys.map(() => '?').join(',')})`).join(',');
     const sql = `INSERT INTO ${this.table} (${keys.join(',')}) VALUES ${placeholders}`;
     const result = await execute(sql, values.flat());
-    
+
     if (this.modelClass) {
        return new this.modelClass().forceFill({ ...(items[0] as any), id: result.insertId });
     }
     return { ...(items[0] as any), id: result.insertId } as T;
+  }
+
+  /** Insert row(s), silently skipping ones that violate a unique constraint. */
+  async insertOrIgnore(data: Partial<T> | Partial<T>[]): Promise<number> {
+    const items = this.prepInsertItems(Array.isArray(data) ? data : [data]);
+    if (items.length === 0) return 0;
+    const keys = Object.keys(items[0]!);
+    const values = items.map(item => keys.map(k => (item as any)[k]));
+    const placeholders = values.map(() => `(${keys.map(() => '?').join(',')})`).join(',');
+    const driver = getCurrentDriver();
+    let sql = driver === 'mysql'
+      ? `INSERT IGNORE INTO ${this.table} (${keys.join(',')}) VALUES ${placeholders}`
+      : `INSERT INTO ${this.table} (${keys.join(',')}) VALUES ${placeholders} ON CONFLICT DO NOTHING`;
+    const result = await execute(sql, values.flat());
+    return result.affectedRows;
+  }
+
+  /**
+   * Insert rows, updating on unique-key conflict (MySQL ON DUPLICATE KEY /
+   * Postgres & SQLite ON CONFLICT ... DO UPDATE).
+   * @param uniqueBy columns forming the unique/primary key (used by PG/SQLite)
+   * @param updateCols columns to overwrite on conflict (default: all non-key cols)
+   */
+  async upsert(rows: Partial<T>[], uniqueBy: string[], updateCols?: string[]): Promise<number> {
+    if (!rows.length) return 0;
+    const items = this.prepInsertItems([...rows]);
+    const keys = Object.keys(items[0]!);
+    keys.forEach(k => assertIdentifier(k, 'column'));
+    uniqueBy.forEach(k => assertIdentifier(k, 'column'));
+    const values = items.map(item => keys.map(k => (item as any)[k]));
+    const placeholders = values.map(() => `(${keys.map(() => '?').join(',')})`).join(',');
+    const cols = (updateCols && updateCols.length ? updateCols : keys.filter(k => !uniqueBy.includes(k)));
+    cols.forEach(k => assertIdentifier(k, 'column'));
+    const driver = getCurrentDriver();
+    let sql = `INSERT INTO ${this.table} (${keys.join(',')}) VALUES ${placeholders}`;
+    if (driver === 'mysql') {
+      sql += ' ON DUPLICATE KEY UPDATE ' + cols.map(c => `${c}=VALUES(${c})`).join(', ');
+    } else {
+      sql += ` ON CONFLICT (${uniqueBy.join(',')}) DO UPDATE SET ` + cols.map(c => `${c}=EXCLUDED.${c}`).join(', ');
+    }
+    const result = await execute(sql, values.flat());
+    return result.affectedRows;
   }
 
   async update(data: Partial<T>): Promise<number> {
@@ -1162,6 +1668,44 @@ export abstract class Model<T = any> {
   }
 
   /**
+   * Define the inverse of morphToMany. Here THIS model is the "tag"-like side:
+   * e.g. Tag.morphedByMany(Post, 'taggable') returns the posts attached to this
+   * tag via the polymorphic pivot (`<name>_id` + `<name>_type` point at Post).
+   */
+  protected morphedByMany<T extends Model>(
+    relatedClass: { new (): T } & typeof Model,
+    name: string,
+    pivotTable?: string,
+    foreignPivotKey?: string,
+    relatedPivotKey?: string,
+    typeColumn?: string
+  ): QueryBuilder<T> {
+    const thisName = this.constructor.name.toLowerCase();
+    const table = pivotTable || `${name}ables`;
+    // This model's key in the pivot (e.g. tag_id); related's morph id (e.g. taggable_id).
+    const fk = foreignPivotKey || `${thisName}_id`;
+    const rk = relatedPivotKey || `${name}_id`;
+    const typeCol = typeColumn || `${name}_type`;
+    const typeVal = relatedClass.name;
+
+    const builder = relatedClass.query<T>();
+    const sql = `id IN (SELECT ${rk} FROM ${table} WHERE ${fk} = ? AND ${typeCol} = ?)`;
+    const qb = builder.whereRaw(sql, [this['id'], typeVal]);
+
+    (qb as any)._relationInfo = {
+      type: 'belongsToMany',
+      relatedClass: relatedClass,
+      pivotTable: table,
+      foreignPivotKey: fk,
+      relatedPivotKey: rk,
+      parentId: this['id'],
+      pivotDefaults: { [typeCol]: typeVal }
+    };
+
+    return qb;
+  }
+
+  /**
    * Define morphTo relationship
    */
   protected morphTo(name?: string, type?: string, id?: string, ownerKey: string = 'id'): QueryBuilder<any> {
@@ -1334,9 +1878,13 @@ export abstract class Model<T = any> {
        const data: any = {};
        for (const key of Object.keys(this)) {
            if (key === 'relations' || key === 'casts' || typeof this[key] === 'function') continue;
+           // Skip unset fields (e.g. a declared `id!: number` that compiles to an
+           // `undefined` own property) so they aren't bound — MySQL rejects
+           // undefined params, and an explicit NULL id breaks Postgres SERIAL.
+           if (this[key] === undefined) continue;
            data[key] = this.prepareAttributeForStorage(key, this[key]);
        }
-       
+
        // Add timestamps if enabled
        const ModelClass = this.constructor as typeof Model;
        if (ModelClass.timestamps) {
@@ -1358,6 +1906,7 @@ export abstract class Model<T = any> {
        // We should only update what's changed, but for now update explicit props
        for (const key of Object.keys(this)) {
           if (key === 'relations' || key === 'casts' || typeof this[key] === 'function') continue;
+          if (this[key] === undefined) continue; // skip unset fields
            data[key] = this.prepareAttributeForStorage(key, this[key]);
        }
 
@@ -1420,6 +1969,53 @@ export abstract class Model<T = any> {
     instance.fill(data);
     await instance.save();
     return instance;
+  }
+
+  // Build a query filtered by an attributes map (used by firstOr*/updateOr*).
+  private static queryByAttributes(attributes: Record<string, any>): QueryBuilder<any> {
+    let q = (this as any).query() as QueryBuilder<any>;
+    for (const [k, v] of Object.entries(attributes)) {
+      q = v === null ? (q as any).whereNull(k) : q.where(k, '=', v);
+    }
+    return q;
+  }
+
+  /** Return the first matching row, or a new UNSAVED instance filled with attributes+values. */
+  static async firstOrNew<T extends Model>(this: { new (): T } & typeof Model, attributes: Partial<T>, values: Partial<T> = {}): Promise<T> {
+    const found = await (this as any).queryByAttributes(attributes).first();
+    if (found) return found;
+    const inst = new (this as any)();
+    inst.fill({ ...attributes, ...values });
+    return inst;
+  }
+
+  /** Return the first matching row, or create + persist one from attributes+values. */
+  static async firstOrCreate<T extends Model>(this: { new (): T } & typeof Model, attributes: Partial<T>, values: Partial<T> = {}): Promise<T> {
+    const found = await (this as any).queryByAttributes(attributes).first();
+    if (found) return found;
+    return (this as any).create({ ...attributes, ...values });
+  }
+
+  /** Update the first matching row with values, or create it. Returns the persisted model. */
+  static async updateOrCreate<T extends Model>(this: { new (): T } & typeof Model, attributes: Partial<T>, values: Partial<T> = {}): Promise<T> {
+    const found = await (this as any).queryByAttributes(attributes).first();
+    if (found) {
+      (found as any).fill(values);
+      await (found as any).save();
+      return found;
+    }
+    return (this as any).create({ ...attributes, ...values });
+  }
+
+  /** Update matching rows with values, or insert attributes+values. Returns true if updated. */
+  static async updateOrInsert(attributes: Record<string, any>, values: Record<string, any> = {}): Promise<boolean> {
+    const existing = await (this as any).queryByAttributes(attributes).first();
+    if (existing) {
+      await (this as any).queryByAttributes(attributes).update(values);
+      return true;
+    }
+    await (this as any).query().insert({ ...attributes, ...values });
+    return false;
   }
 
   static async updateById<T>(id: number | string, data: Partial<T>): Promise<number> {

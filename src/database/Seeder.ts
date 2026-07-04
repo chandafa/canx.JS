@@ -40,7 +40,10 @@ class SeederRunner {
   }
 }
 
-export const seeder = new SeederRunner();
+// On globalThis so seeder files (imported via the `canxjs` junction) register
+// on the SAME runner the CLI executes — see the migrator note for why.
+const SEEDER_KEY = Symbol.for('canxjs.database.seeder');
+export const seeder: SeederRunner = ((globalThis as any)[SEEDER_KEY] ??= new SeederRunner());
 
 // Faker-like utilities for seeding
 export const fake = {

@@ -206,7 +206,11 @@ export class TableBuilder {
       }
 
       if (col.type !== 'id') {
+        // Emit NULL/NOT NULL explicitly. The explicit NULL matters for MySQL/
+        // MariaDB TIMESTAMP columns: a bare second TIMESTAMP otherwise gets an
+        // implicit '0000-00-00' default that strict mode rejects.
         if (!col.nullable) sql += ' NOT NULL';
+        else sql += ' NULL';
         if (col.default !== undefined) {
           let def: string | number;
           if (typeof col.default === 'string') {
@@ -289,22 +293,30 @@ export const Schema = {
   async hasTable(table: string): Promise<boolean> {
     const driver = getCurrentDriver();
     if (driver === 'sqlite') {
-      const result = await query<{ count: number }>(`SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='${table}'`);
-      // @ts-ignore
-      return (result[0]?.count || result[0]?.['count(*)']) > 0;
-    }
-    if (driver === 'postgresql') {
-      const result = await query<any>(`SELECT 1 FROM information_schema.tables WHERE table_name = ?`, [table]);
+      // sqlite_master lists tables; bind the name as a param.
+      const result = await query<any>(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name = ?`,
+        [table]
+      );
       return result.length > 0;
     }
-    const result = await query<any>(`SHOW TABLES LIKE '${table}'`);
+    if (driver === 'postgresql') {
+      const result = await query<any>(
+        `SELECT 1 FROM information_schema.tables WHERE table_name = ? AND table_schema = 'public'`,
+        [table]
+      );
+      return result.length > 0;
+    }
+    // MySQL: parameterized SHOW TABLES LIKE (no interpolation).
+    const result = await query<any>(`SHOW TABLES LIKE ?`, [table]);
     return result.length > 0;
   },
 
   async hasColumn(table: string, column: string): Promise<boolean> {
     const driver = getCurrentDriver();
     if (driver === 'sqlite') {
-      const result = await query(`PRAGMA table_info(${table})`);
+      // PRAGMA can't take bound params, so interpolate the quoted/validated name.
+      const result = await query(`PRAGMA table_info(${quoteId(table, driver)})`);
       return (result as any[]).some(c => c.name === column);
     }
     if (driver === 'postgresql') {
@@ -314,7 +326,8 @@ export const Schema = {
       );
       return result.length > 0;
     }
-    const result = await query<any>(`SHOW COLUMNS FROM \`${table}\` LIKE '${column}'`);
+    // MySQL: table name needs backtick quoting; the column match is bound.
+    const result = await query<any>(`SHOW COLUMNS FROM ${quoteId(table, driver)} LIKE ?`, [column]);
     return result.length > 0;
   },
 };
@@ -409,7 +422,13 @@ class Migrator {
         await migration.down();
       }
     }
-    await execute('TRUNCATE TABLE migrations');
+    // SQLite has no TRUNCATE; use DELETE. MySQL/Postgres keep TRUNCATE.
+    const driver = getCurrentDriver();
+    if (driver === 'sqlite') {
+      await execute(`DELETE FROM ${quoteId('migrations', driver)}`);
+    } else {
+      await execute(`TRUNCATE TABLE ${quoteId('migrations', driver)}`);
+    }
     console.log('[Migration] Reset complete.');
   }
 
@@ -427,7 +446,13 @@ class Migrator {
   }
 }
 
-export const migrator = new Migrator();
+// On globalThis so a migration file that imports `canxjs` (via the
+// node_modules junction) and the CLI (which imports the real dist path) share
+// ONE migrator — otherwise Windows path-casing/junction resolution loads two
+// module copies and migrations register on an instance the CLI never runs.
+// (Same dual-instance guard as the DB connection state.)
+const MIGRATOR_KEY = Symbol.for('canxjs.database.migrator');
+export const migrator: Migrator = ((globalThis as any)[MIGRATOR_KEY] ??= new Migrator());
 
 export function defineMigration(name: string, up: () => Promise<void>, down: () => Promise<void>): Migration {
   const migration = { name, up, down };

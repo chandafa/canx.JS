@@ -3,6 +3,7 @@ import { existsSync, readdirSync } from 'fs';
 import pc from 'picocolors';
 import type { Command } from '../Command';
 import { migrator } from '../../database/Migration';
+import { seeder } from '../../database/Seeder';
 import { initDatabase } from '../../mvc/Model';
 
 export class MigrateCommand implements Command {
@@ -73,6 +74,15 @@ export class MigrateCommand implements Command {
           break;
         case 'fresh':
           await migrator.fresh();
+          // `canx migrate fresh --seed` runs seeders right after rebuilding.
+          if (flags.seed) {
+            const seederDir = join(cwd, 'src/database/seeders');
+            if (existsSync(seederDir)) {
+              const seederFiles = readdirSync(seederDir).filter(f => f.endsWith('.ts') || f.endsWith('.js')).sort();
+              for (const f of seederFiles) await import(join(seederDir, f));
+              await seeder.run();
+            }
+          }
           break;
         case 'reset':
           await migrator.reset();

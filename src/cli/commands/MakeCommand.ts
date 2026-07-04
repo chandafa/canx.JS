@@ -300,8 +300,9 @@ export default defineMigration(
     getSeeder(name: string) {
         return `import { defineSeeder } from 'canxjs';
 
-export default defineSeeder(async () => {
-  // await User.create({ ... });
+// Registers this seeder with the global runner. Run all seeders with: canx db:seed
+defineSeeder('${name}', async () => {
+  // await User.create({ name: 'Admin', email: 'admin@example.com' });
 });
 `;
     }

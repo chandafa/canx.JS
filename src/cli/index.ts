@@ -4,6 +4,7 @@ export type { Command };
 
 // Core Commands
 import { MigrateCommand } from './commands/MigrateCommand';
+import { SeedCommand } from './commands/SeedCommand';
 import { QueueWorkCommand } from './commands/QueueWorkCommand';
 import { MakeGenerator } from './commands/MakeCommand';
 import { RouteListCommand } from './commands/RouteListCommand';
@@ -26,6 +27,7 @@ export class Console {
       this.register(new HelpCommand());
       this.register(new ListCommand());
       this.register(new MigrateCommand());
+      this.register(new SeedCommand());
       this.register(new QueueWorkCommand());
       this.register(new DashboardCommand());
       this.register(new RouteListCommand());

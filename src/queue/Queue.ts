@@ -1,5 +1,8 @@
 import type { QueueConfig, QueueDriver, Job } from './drivers/types';
 import { MemoryDriver } from './drivers/MemoryDriver';
+import { SyncDriver } from './drivers/SyncDriver';
+import { DatabaseDriver } from './drivers/DatabaseDriver';
+import { RedisDriver } from './drivers/RedisDriver';
 
 export class Queue {
   public driver: QueueDriver;
@@ -14,15 +17,47 @@ export class Queue {
     this.config = config;
     this.concurrency = config.concurrency || 5;
 
-    // Default to Memory Driver
-    if (config.connections?.redis && config.default === 'redis') {
-      // Allow dynamic injection of Redis client or driver
-      // For now, we default to memory if no driver instance provided externally
-      // In a real app, we would load RedisDriver here
-      console.warn('[Queue] Redis driver requires manual setup or injection. Defaulting to Memory.');
-      this.driver = (config as any).driverInstance || new MemoryDriver();
-    } else {
-      this.driver = new MemoryDriver();
+    // An explicit, fully-built driver instance always wins.
+    const injected = (config as any).driverInstance as QueueDriver | undefined;
+    if (injected) {
+      this.driver = injected;
+      return;
+    }
+
+    switch (config.default) {
+      case 'sync':
+        // Wire the sync executor to this queue's registered handlers so pushed
+        // jobs run inline immediately.
+        this.driver = new SyncDriver(async (job) => {
+          const handler = this.handlers.get(job.name);
+          if (!handler) throw new Error(`No handler for ${job.name}`);
+          await handler(job.data);
+        });
+        break;
+
+      case 'database':
+        this.driver = new DatabaseDriver(config.connections?.database?.table ?? 'jobs');
+        break;
+
+      case 'redis': {
+        // Accept a live redis client from any of the recognised config slots.
+        const client =
+          (config as any).redis ??
+          (config as any).connection?.client ??
+          (config.connections?.redis as any)?.client;
+        if (client) {
+          this.driver = new RedisDriver(client);
+        } else {
+          console.warn('[Queue] Redis driver requires a client (config.redis / connections.redis.client). Defaulting to Memory.');
+          this.driver = new MemoryDriver();
+        }
+        break;
+      }
+
+      case 'memory':
+      default:
+        this.driver = new MemoryDriver();
+        break;
     }
   }
 
@@ -171,3 +206,5 @@ export function createQueue(config?: QueueConfig) { return new Queue(config); }
 export { QueueConfig, QueueDriver, Job };
 export { MemoryDriver } from './drivers/MemoryDriver';
 export { RedisDriver } from './drivers/RedisDriver';
+export { SyncDriver } from './drivers/SyncDriver';
+export { DatabaseDriver } from './drivers/DatabaseDriver';

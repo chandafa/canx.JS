@@ -82,6 +82,78 @@ export class MemoryCacheDriver implements CacheDriver {
 }
 
 // ============================================
+// Redis Cache Driver
+// ============================================
+
+/**
+ * Redis-backed cache driver.
+ *
+ * Accepts an injected ioredis/node-redis-style client (typed `any`, exactly
+ * like RedisSessionStore/RedisStore elsewhere) — no redis package is bundled.
+ * Values are JSON-serialized on set and parsed on get; all keys are namespaced
+ * with `prefix`. TTL is expressed in seconds (matching CacheDriver.set).
+ */
+export class RedisCacheDriver implements CacheDriver {
+  constructor(private client: any, private prefix: string = 'canxcache:') {}
+
+  private key(key: string): string {
+    return `${this.prefix}${key}`;
+  }
+
+  async get<T>(key: string): Promise<T | null> {
+    const raw = await this.client.get(this.key(key));
+    if (raw === null || raw === undefined) return null;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  async set<T>(key: string, value: T, ttl?: number): Promise<void> {
+    const fullKey = this.key(key);
+    const payload = JSON.stringify(value);
+    if (ttl && ttl > 0) {
+      if (typeof this.client.setex === 'function') {
+        await this.client.setex(fullKey, ttl, payload);
+      } else {
+        await this.client.set(fullKey, payload, 'EX', ttl);
+      }
+    } else {
+      await this.client.set(fullKey, payload);
+    }
+  }
+
+  async has(key: string): Promise<boolean> {
+    if (typeof this.client.exists === 'function') {
+      return (await this.client.exists(this.key(key))) > 0;
+    }
+    return (await this.get(key)) !== null;
+  }
+
+  async delete(key: string): Promise<boolean> {
+    const removed = await this.client.del(this.key(key));
+    return Number(removed) > 0;
+  }
+
+  async clear(): Promise<void> {
+    if (typeof this.client.keys === 'function') {
+      const keys: string[] = await this.client.keys(`${this.prefix}*`);
+      if (keys && keys.length > 0) {
+        await this.client.del(...keys);
+      }
+    } else if (typeof this.client.flushdb === 'function') {
+      await this.client.flushdb();
+    }
+  }
+
+  async keys(): Promise<string[]> {
+    const keys: string[] = (await this.client.keys(`${this.prefix}*`)) || [];
+    return keys.map((k) => (k.startsWith(this.prefix) ? k.slice(this.prefix.length) : k));
+  }
+}
+
+// ============================================
 // Tagged Cache
 // ============================================
 

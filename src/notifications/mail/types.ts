@@ -24,7 +24,7 @@ export interface MailMessage {
 }
 
 export interface MailConfig {
-  transport: 'smtp' | 'sendgrid' | 'resend' | 'log';
+  transport: 'smtp' | 'sendgrid' | 'resend' | 'log' | 'mailgun' | 'ses' | 'array';
   from?: MailAddress | string;
   smtp?: {
     host: string;
@@ -40,6 +40,25 @@ export interface MailConfig {
   };
   resend?: {
     apiKey: string;
+  };
+  mailgun?: {
+    apiKey: string;
+    domain: string;
+    /** Mailgun region: 'us' (default) or 'eu'. */
+    region?: string;
+  };
+  ses?: {
+    /** AWS region, e.g. 'us-east-1'. */
+    region: string;
+    /** SES SMTP username. */
+    username: string;
+    /** SES SMTP password. */
+    password: string;
+    /** Override the SMTP host (defaults to email-smtp.<region>.amazonaws.com). */
+    host?: string;
+    /** SMTP port (defaults to 465, implicit TLS). */
+    port?: number;
+    secure?: boolean;
   };
 }
 

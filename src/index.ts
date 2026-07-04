@@ -25,7 +25,7 @@ export { security } from './middlewares/SecurityMiddleware';
 export { validateSchema } from './middlewares/ValidationMiddleware';
 export { csrf, csrfField, csrfMeta } from './middlewares/CsrfMiddleware';
 export { SessionMiddleware } from './middlewares/SessionMiddleware';
-export { Session as SessionStore } from './core/Session';
+export { Session as SessionStore, RedisSessionDriver as SessionRedisDriver, DatabaseSessionDriver as SessionDatabaseDriver } from './core/Session';
 
 // ============================================
 // Schema / Validation Exports
@@ -53,7 +53,7 @@ export {
   getControllerMeta,
   wrapWithParamResolution,
 } from './mvc/Controller';
-export { Model, QueryBuilderImpl, initDatabase, closeDatabase, query, execute } from './mvc/Model';
+export { Model, QueryBuilderImpl, initDatabase, closeDatabase, query, execute, transaction, beginTransaction, commit, rollBack, DB, flushQueryCache, getCurrentDriver } from './mvc/Model';
 export { jsx, jsxs, Fragment, html, render, renderPage, createLayout, View, view, viewExists } from './mvc/View';
 
 // Model Observers
@@ -127,7 +127,7 @@ export { scheduler, createScheduler, Scheduler } from './features/Scheduler';
 export { payment, PaymentManager } from './payment/PaymentManager';
 
 // Queue & Jobs
-export { queue, createQueue, Queue, MemoryDriver as QueueMemoryDriver, RedisDriver as QueueRedisDriver } from './queue/Queue';
+export { queue, createQueue, Queue, MemoryDriver as QueueMemoryDriver, RedisDriver as QueueRedisDriver, SyncDriver as QueueSyncDriver, DatabaseDriver as QueueDatabaseDriver } from './queue/Queue';
 export type { QueueConfig, QueueDriver, Job } from './queue/Queue';
 export {
   chain,
@@ -191,6 +191,8 @@ export {
   requireAuth,
   guestOnly,
   runInAuthContext,
+  actAsUser,
+  stopActingAs,
   SessionGuard,
   TokenGuard,
   JwtGuard,
@@ -239,13 +241,14 @@ export type { VersioningConfig, VersionedRoute } from './utils/ApiVersioning';
 // ============================================
 // Tagged Cache Exports
 // ============================================
-export { 
-  TaggedCache, 
+export {
+  TaggedCache,
   TaggedCacheScope,
   MemoryCacheDriver,
-  initCache, 
-  cache, 
-  createCache 
+  RedisCacheDriver,
+  initCache,
+  cache,
+  createCache
 } from './cache/TaggedCache';
 export type { CacheConfig, CacheItem, CacheStats, CacheDriver } from './cache/TaggedCache';
 
@@ -364,6 +367,7 @@ export {
   BroadcastManager,
   PusherDriver,
   AblyDriver,
+  RedisBroadcastDriver,
   BroadcastableEvent,
 } from './realtime/Broadcasting';
 export type { BroadcastEvent, BroadcastResult, PusherConfig, AblyConfig } from './realtime/Broadcasting';
@@ -379,6 +383,10 @@ export { events, createEventEmitter, EventEmitter, Listen, getEventListeners, Ev
 // Notifications Exports
 // ============================================
 export { initMail, mail, sendMail, Mailer, MailBuilder } from './notifications/Mail';
+export { SmtpDriver } from './notifications/mail/drivers/SmtpDriver';
+export { ArrayDriver as ArrayMailDriver } from './notifications/mail/drivers/ArrayDriver';
+export { MailgunDriver } from './notifications/mail/drivers/MailgunDriver';
+export { SesDriver } from './notifications/mail/drivers/SesDriver';
 export { notifications, notify, notifyMany, Notification, makeNotifiable } from './notifications/Notification';
 export type { MailMessage, MailConfig, MailAddress, MailAttachment } from './notifications/Mail';
 export type { Notifiable, NotificationChannel } from './notifications/Notification';
@@ -450,8 +458,21 @@ export {
   isForwardRef,
   Scope,
   AutoWire,
+  enableAutoWiring,
 } from './container/Container';
 export type { ForwardRef } from './container/Container';
+
+// ============================================
+// Signed URLs (tamper-proof links)
+// ============================================
+export {
+  signUrl,
+  signedRoute,
+  temporarySignedUrl,
+  hasValidSignature,
+  requireValidSignature,
+  setSignedUrlKey,
+} from './utils/SignedUrl';
 export { 
   requestScopeMiddleware,
   runInRequestContext,

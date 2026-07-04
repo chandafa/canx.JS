@@ -27,19 +27,26 @@ export class LocalDriver implements StorageDriver {
   async put(path: string, content: Buffer | string | Blob): Promise<string> {
     const fullPath = this.getFullPath(path);
     const dir = dirname(fullPath);
-    
+
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
 
-    let data: Buffer | string;
-    if (content instanceof Blob) {
-      data = Buffer.from(await content.arrayBuffer());
-    } else {
-      data = content;
-    }
+    // Bun.write streams a Blob/File straight to disk without materializing the
+    // whole thing in a JS Buffer, so large uploads don't blow up memory.
+    await Bun.write(fullPath, content as any);
+    return path;
+  }
 
-    await Bun.write(fullPath, data);
+  /**
+   * Stream a Blob/File to disk without buffering it fully in memory.
+   * Used by handleUpload() for large multipart uploads on the local disk.
+   */
+  async putStream(path: string, blob: Blob): Promise<string> {
+    const fullPath = this.getFullPath(path);
+    const dir = dirname(fullPath);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    await Bun.write(fullPath, blob);
     return path;
   }
 
@@ -96,10 +103,11 @@ export class LocalDriver implements StorageDriver {
   }
 
   async temporaryUrl(path: string, expiresIn: number): Promise<string> {
-    // For local storage, generate a signed URL token
-    const expires = Date.now() + (expiresIn * 1000);
-    const token = Buffer.from(`${path}:${expires}`).toString('base64url');
-    return `${this.urlPrefix}/${path}?token=${token}&expires=${expires}`;
+    // HMAC-sign the URL so the token cannot be forged (the previous base64 token
+    // was just `path:expires` and trivially spoofable). Signature covers the
+    // path + expires; verify server-side with hasValidSignature().
+    const { signUrl } = await import('../../utils/SignedUrl');
+    return signUrl(`${this.urlPrefix}/${path}`, expiresIn);
   }
 
   async metadata(path: string): Promise<FileMetadata> {

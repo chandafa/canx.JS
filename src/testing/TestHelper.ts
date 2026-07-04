@@ -5,6 +5,8 @@
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
 import type { CanxRequest, CanxResponse } from '../types';
+import { QueryBuilderImpl, beginTransaction, rollBack } from '../mvc/Model';
+import { actAsUser, stopActingAs } from '../auth/Guard';
 
 // ============================================
 // Types
@@ -48,6 +50,22 @@ export class HttpTest {
    */
   withToken(token: string): this {
     this.headers['Authorization'] = `Bearer ${token}`;
+    return this;
+  }
+
+  /**
+   * Authenticate as the given user for subsequent requests (Laravel actingAs).
+   * Bypasses the real guards — the auth middleware resolves this user directly.
+   * Call logout() (or stopActingAs) to clear.
+   */
+  actingAs(user: any): this {
+    actAsUser(user);
+    return this;
+  }
+
+  /** Stop impersonating (clear actingAs). */
+  logout(): this {
+    stopActingAs();
     return this;
   }
 
@@ -165,36 +183,52 @@ export class HttpTest {
 // ============================================
 
 export class DatabaseTest {
-  /**
-   * Seed the database
-   */
-  static async seed(seederName: string): Promise<void> {
-    // Logic to call seeder
-    // This assumes seeders are registered in the global registry
+  // Build a table query filtered by an equality map.
+  private static queryFor(table: string, data: Record<string, any>) {
+    let q = new QueryBuilderImpl<any>(table);
+    for (const [k, v] of Object.entries(data)) {
+      q = v === null ? (q as any).whereNull(k) : (q as any).where(k, '=', v);
+    }
+    return q;
   }
 
   /**
-   * Refresh database (migrate fresh)
+   * Run a seeder (an instance with a `run()` method, or a plain function).
    */
-  static async refreshDatabase(): Promise<void> {
-    // Logic to run migrations down then up
+  static async seed(seeder: { run: () => Promise<void> | void } | (() => Promise<void> | void)): Promise<void> {
+    if (typeof seeder === 'function') await seeder();
+    else if (seeder && typeof seeder.run === 'function') await seeder.run();
   }
 
   /**
-   * Assert database has record
+   * Wrap every test in a transaction that is rolled back afterwards, giving each
+   * test a clean database without re-migrating. Call inside a describe() block.
+   * Optionally pass a one-time schema/seed setup to run in beforeAll.
    */
+  static refreshDatabase(setup?: () => Promise<void> | void): void {
+    if (setup) beforeAll(async () => { await setup(); });
+    beforeEach(async () => { await beginTransaction(); });
+    afterEach(async () => { await rollBack(); });
+  }
+
+  /** Assert the table contains at least one row matching `data`. */
   static async assertHas(table: string, data: Record<string, any>): Promise<void> {
-    // Use DB query builder to check existence
-    // const exists = await DB.table(table).where(data).exists();
-    // expect(exists).toBe(true);
+    const exists = await (this.queryFor(table, data) as any).exists();
+    if (!exists) throw new Error(`Failed asserting that table [${table}] contains ${JSON.stringify(data)}`);
+    expect(exists).toBe(true);
   }
 
-  /**
-   * Assert database missing record
-   */
+  /** Assert the table contains NO row matching `data`. */
   static async assertMissing(table: string, data: Record<string, any>): Promise<void> {
-    // const exists = await DB.table(table).where(data).exists();
-    // expect(exists).toBe(false);
+    const exists = await (this.queryFor(table, data) as any).exists();
+    if (exists) throw new Error(`Failed asserting that table [${table}] is missing ${JSON.stringify(data)}`);
+    expect(exists).toBe(false);
+  }
+
+  /** Assert an exact row count (optionally filtered by `data`). */
+  static async assertCount(table: string, count: number, data: Record<string, any> = {}): Promise<void> {
+    const actual = await (this.queryFor(table, data) as any).count();
+    expect(actual).toBe(count);
   }
 }
 

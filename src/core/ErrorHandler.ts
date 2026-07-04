@@ -109,12 +109,19 @@ export class ErrorHandler {
     // Log to console with nice formatting
     this.logError(error, req);
 
+    // In production, never leak internal details of a 5xx error (a raw thrown
+    // Error, DB failure, etc.). 4xx client errors keep their message since
+    // they're intentional and safe (validation, not-found, unauthorized…).
+    const maskServerError = !isDev && status >= 500;
+    const publicMessage = maskServerError ? 'Internal Server Error' : message;
+    const publicCode = maskServerError ? 'INTERNAL_ERROR' : code;
+
     // Return JSON for API requests or Production
     if (!isDev || req.headers.get('accept') === 'application/json') {
       const responseBody: any = {
         error: {
-          message,
-          code,
+          message: publicMessage,
+          code: publicCode,
           status,
         }
       };

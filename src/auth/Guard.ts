@@ -30,6 +30,15 @@ export function runInAuthContext<T>(req: CanxRequest, fn: () => T): T {
   return authContext.run({ request: req, users: new Map() }, fn);
 }
 
+// Test-only impersonation override (Laravel's actingAs). When set (even to
+// null), the guards are bypassed and this user is returned by authenticate().
+// `undefined` means "not overriding". Intended for tests ONLY.
+let testUserOverride: AuthUser | null | undefined = undefined;
+/** Test helper: force the authenticated user for subsequent requests. */
+export function actAsUser(user: AuthUser | null): void { testUserOverride = user; }
+/** Test helper: stop impersonating (restore normal guard authentication). */
+export function stopActingAs(): void { testUserOverride = undefined; }
+
 // ============================================
 // Types
 // ============================================
@@ -139,6 +148,14 @@ export class AuthManager {
     }
 
     const name = guardName || this.defaultGuard;
+
+    // Test impersonation short-circuit (actAsUser): bypass the guard entirely.
+    if (testUserOverride !== undefined) {
+      const store = authContext.getStore();
+      if (store) store.users.set(name, testUserOverride);
+      return testUserOverride;
+    }
+
     const guard = this.guard(name);
     const user = await guard.authenticate(req);
 
@@ -148,15 +165,44 @@ export class AuthManager {
   }
 
   /**
-   * Get current user (from the per-request context when available).
+   * Get current user.
+   *
+   * When a per-request auth context exists (the normal middleware path) the
+   * user is read ONLY from that per-request store — we never fall back to the
+   * shared guard instance, which is what previously leaked another request's
+   * user under concurrency. Outside a request (CLI/scripts/seeders) there is no
+   * store, so the shared guard instance is used, which is safe single-threaded.
    */
   user(guardName?: string): AuthUser | null {
     const name = guardName || this.defaultGuard;
     const store = authContext.getStore();
-    if (store && store.users.has(name)) {
+    if (store) {
       return (store.users.get(name) as AuthUser | null) ?? null;
     }
     return this.guard(name).user();
+  }
+
+  /**
+   * Set the current user for a guard. Writes into the per-request context when
+   * present (so a login during the request is visible to user()/check() without
+   * touching shared state); otherwise updates the shared guard instance.
+   */
+  setUser(user: AuthUser | null, guardName?: string): this {
+    const name = guardName || this.defaultGuard;
+    const store = authContext.getStore();
+    if (store) store.users.set(name, user);
+    else this.guard(name).setUser(user);
+    return this;
+  }
+
+  /** Log a user in for the current request (alias of setUser). */
+  login(user: AuthUser, guardName?: string): this {
+    return this.setUser(user, guardName);
+  }
+
+  /** Log the current user out. */
+  logout(guardName?: string): this {
+    return this.setUser(null, guardName);
   }
 
   /**
@@ -164,6 +210,11 @@ export class AuthManager {
    */
   check(guardName?: string): boolean {
     return this.user(guardName) !== null;
+  }
+
+  /** The authenticated user's id, or null. */
+  id(guardName?: string): string | number | null {
+    return this.user(guardName)?.id ?? null;
   }
 
   /**

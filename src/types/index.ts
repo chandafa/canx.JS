@@ -198,6 +198,14 @@ export type ControllerAction = (req: CanxRequest, res: CanxResponse) => Promise<
 
 export type DatabaseDriver = 'mysql' | 'postgresql' | 'sqlite';
 
+export interface ReplicaConfig {
+  host?: string;
+  port?: number;
+  database?: string;
+  username?: string;
+  password?: string;
+}
+
 export interface DatabaseConfig {
   driver: DatabaseDriver;
   host?: string;
@@ -210,6 +218,8 @@ export interface DatabaseConfig {
     max?: number;
     idle?: number;
   };
+  /** Optional read replica(s). SELECTs outside a transaction route here. */
+  read?: ReplicaConfig | ReplicaConfig[];
   /** Enable query logging */
   logging?: boolean;
   /** SSL configuration */
@@ -253,12 +263,30 @@ export interface Paginated<T> {
 
 export interface QueryBuilder<T> {
   select: (...columns: (Column<T> | '*')[]) => QueryBuilder<T>;
-  where: (column: Column<T>, operator: string, value: unknown) => QueryBuilder<T>;
-  whereIn: (column: Column<T>, values: unknown[]) => QueryBuilder<T>;
+  where: {
+    (column: Column<T>, operator: string, value: unknown): QueryBuilder<T>;
+    (column: Column<T>, value: unknown): QueryBuilder<T>;
+    (group: (q: QueryBuilder<T>) => void): QueryBuilder<T>;
+  };
+  whereIn: (column: Column<T>, values: unknown[] | QueryBuilder<any>) => QueryBuilder<T>;
+  whereNotIn: (column: Column<T>, values: unknown[] | QueryBuilder<any>) => QueryBuilder<T>;
+  orWhereIn: (column: Column<T>, values: unknown[]) => QueryBuilder<T>;
   whereNull: (column: Column<T>) => QueryBuilder<T>;
   whereNotNull: (column: Column<T>) => QueryBuilder<T>;
+  orWhereNull: (column: Column<T>) => QueryBuilder<T>;
+  orWhereNotNull: (column: Column<T>) => QueryBuilder<T>;
+  whereBetween: (column: Column<T>, range: [unknown, unknown]) => QueryBuilder<T>;
+  whereNotBetween: (column: Column<T>, range: [unknown, unknown]) => QueryBuilder<T>;
   whereRaw: (sql: string, bindings?: unknown[]) => QueryBuilder<T>;
-  orWhere: (column: Column<T>, operator: string, value: unknown) => QueryBuilder<T>;
+  orWhere: {
+    (column: Column<T>, operator: string, value: unknown): QueryBuilder<T>;
+    (column: Column<T>, value: unknown): QueryBuilder<T>;
+    (group: (q: QueryBuilder<T>) => void): QueryBuilder<T>;
+  };
+  whereHas: (relation: string, cb?: (q: QueryBuilder<any>) => void) => QueryBuilder<T>;
+  orWhereHas: (relation: string, cb?: (q: QueryBuilder<any>) => void) => QueryBuilder<T>;
+  whereDoesntHave: (relation: string, cb?: (q: QueryBuilder<any>) => void) => QueryBuilder<T>;
+  orWhereDoesntHave: (relation: string, cb?: (q: QueryBuilder<any>) => void) => QueryBuilder<T>;
   orderBy: (column: Column<T>, direction?: 'asc' | 'desc') => QueryBuilder<T>;
   limit: (count: number) => QueryBuilder<T>;
   offset: (count: number) => QueryBuilder<T>;
@@ -266,13 +294,25 @@ export interface QueryBuilder<T> {
   leftJoin: (table: string, first: string, operator: string, second: string) => QueryBuilder<T>;
   groupBy: (...columns: Column<T>[]) => QueryBuilder<T>;
   having: (column: Column<T>, operator: string, value: unknown) => QueryBuilder<T>;
+  lockForUpdate: () => QueryBuilder<T>;
+  sharedLock: () => QueryBuilder<T>;
+  remember: (seconds: number, key?: string) => QueryBuilder<T>;
   get: () => Promise<T[]>;
   first: () => Promise<T | null>;
   count: () => Promise<number>;
   sum: (column: Column<T>) => Promise<number>;
   avg: (column: Column<T>) => Promise<number>;
+  min: (column: Column<T>) => Promise<number>;
+  max: (column: Column<T>) => Promise<number>;
+  exists: () => Promise<boolean>;
+  chunk: (size: number, cb: (rows: T[], page: number) => unknown) => Promise<void>;
+  cursor: (size?: number) => AsyncGenerator<T>;
+  lazy: (size?: number) => AsyncGenerator<T>;
+  each: (cb: (row: T) => unknown, size?: number) => Promise<void>;
   paginate: (page?: number, perPage?: number) => Promise<Paginated<T>>;
   insert: (data: Partial<T> | Partial<T>[]) => Promise<T>;
+  insertOrIgnore: (data: Partial<T> | Partial<T>[]) => Promise<number>;
+  upsert: (rows: Partial<T>[], uniqueBy: string[], updateColumns?: string[]) => Promise<number>;
   update: (data: Partial<T>) => Promise<number>;
   delete: () => Promise<number>;
   forceDelete: () => Promise<number>;
@@ -286,7 +326,7 @@ export interface QueryBuilder<T> {
 }
 
 export interface RelationInfo {
-  type: 'hasOne' | 'hasMany' | 'belongsTo' | 'belongsToMany';
+  type: 'hasOne' | 'hasMany' | 'belongsTo' | 'belongsToMany' | 'morphTo' | 'morphOne' | 'morphMany' | 'hasManyThrough';
   relatedClass: any;
   foreignKey: string;
   localKey?: string;
@@ -294,6 +334,14 @@ export interface RelationInfo {
   pivotTable?: string;
   foreignPivotKey?: string;
   relatedPivotKey?: string;
+  parentId?: any;
+  pivotDefaults?: Record<string, any>;
+  morphName?: string;
+  morphType?: string;
+  morphId?: string;
+  throughClass?: any;
+  firstKey?: string;
+  secondKey?: string;
 }
 
 export type CastType = 'int' | 'integer' | 'real' | 'float' | 'double' | 'string' | 'bool' | 'boolean' | 'object' | 'array' | 'json' | 'collection' | 'date' | 'datetime' | 'timestamp';

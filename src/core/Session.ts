@@ -1,18 +1,20 @@
 /**
  * CanxJS Session Manager
- * Handles session state via drivers (File / Cookie / Redis)
+ * Handles session state via drivers (File / Memory / Redis / Database)
  */
 
 import { randomUuid } from '../utils/Str';
 import { env } from '../utils/Env';
 
 export interface SessionConfig {
-    driver: 'file' | 'cookie' | 'memory';
+    driver: 'file' | 'cookie' | 'memory' | 'redis' | 'database';
     lifetime: number; // minutes
     expireOnClose: boolean;
     encrypt: boolean;
     files?: string; // path for file driver
     cookie?: string; // cookie name
+    client?: any; // injected redis client (ioredis / node-redis) for the redis driver
+    table?: string; // table name for the database driver
 }
 
 export interface SessionDriver {
@@ -108,6 +110,102 @@ export class FileDriver implements SessionDriver {
     }
 }
 
+/**
+ * Redis session driver.
+ * `client` is an injected ioredis / node-redis style object (typed `any`, not imported here
+ * so the framework carries no hard redis dependency). `ttl` is in minutes and is converted
+ * to seconds for redis' SETEX. Expiry is handled natively by redis, so `gc()` is a no-op.
+ */
+export class RedisSessionDriver implements SessionDriver {
+    constructor(
+        private client: any,
+        private prefix: string = 'canxsess:',
+        private ttl: number = 1440
+    ) {}
+
+    async read(id: string): Promise<Record<string, any>> {
+        const raw = await this.client.get(this.prefix + id);
+        return raw ? JSON.parse(raw) : {};
+    }
+
+    async write(id: string, data: Record<string, any>): Promise<void> {
+        await this.client.setex(this.prefix + id, this.ttl * 60, JSON.stringify(data));
+    }
+
+    async destroy(id: string): Promise<void> {
+        await this.client.del(this.prefix + id);
+    }
+
+    async gc(_lifetime: number): Promise<void> {
+        // No-op: redis TTL (via SETEX) handles expiry automatically.
+    }
+}
+
+import { query, execute } from '../mvc/Model';
+
+/**
+ * Database session driver.
+ * Stores sessions in a table (default `sessions`) using portable SQL.
+ * Required columns:
+ *   - id            VARCHAR / TEXT (primary key)
+ *   - payload       TEXT      (JSON-serialized session data)
+ *   - last_activity INTEGER   (unix epoch seconds of last write)
+ */
+export class DatabaseSessionDriver implements SessionDriver {
+    constructor(private table: string = 'sessions') {}
+
+    async read(id: string): Promise<Record<string, any>> {
+        const rows = await query(
+            `SELECT payload FROM ${this.table} WHERE id = ?`,
+            [id]
+        );
+        const row = rows && rows[0];
+        if (!row || row.payload == null) return {};
+        try {
+            return JSON.parse(row.payload);
+        } catch (e) {
+            return {};
+        }
+    }
+
+    async write(id: string, data: Record<string, any>): Promise<void> {
+        const payload = JSON.stringify(data);
+        const lastActivity = Math.floor(Date.now() / 1000);
+
+        // Upsert without MySQL-only syntax: try UPDATE, INSERT if nothing was affected.
+        const result: any = await execute(
+            `UPDATE ${this.table} SET payload = ?, last_activity = ? WHERE id = ?`,
+            [payload, lastActivity, id]
+        );
+
+        const affected =
+            result && typeof result.affectedRows === 'number'
+                ? result.affectedRows
+                : result && typeof result.changes === 'number'
+                    ? result.changes
+                    : 0;
+
+        if (!affected) {
+            await execute(
+                `INSERT INTO ${this.table} (id, payload, last_activity) VALUES (?, ?, ?)`,
+                [id, payload, lastActivity]
+            );
+        }
+    }
+
+    async destroy(id: string): Promise<void> {
+        await execute(`DELETE FROM ${this.table} WHERE id = ?`, [id]);
+    }
+
+    async gc(lifetime: number): Promise<void> {
+        const cutoff = Math.floor(Date.now() / 1000) - lifetime * 60;
+        await execute(
+            `DELETE FROM ${this.table} WHERE last_activity < ?`,
+            [cutoff]
+        );
+    }
+}
+
 export class Session {
     private driver: SessionDriver;
     private id: string | null = null;
@@ -129,6 +227,10 @@ export class Session {
         // Driver factory
         if (this.config.driver === 'file') {
             this.driver = new FileDriver(this.config.files || process.cwd() + '/.sessions');
+        } else if (this.config.driver === 'redis' && this.config.client) {
+            this.driver = new RedisSessionDriver(this.config.client, undefined, this.config.lifetime);
+        } else if (this.config.driver === 'database') {
+            this.driver = new DatabaseSessionDriver(this.config.table);
         } else {
             this.driver = new MemoryDriver();
         }

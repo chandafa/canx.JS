@@ -1,5 +1,66 @@
 # Changelog
 
+## [1.8.0] - 2026-07-04
+
+Major capability release closing the remaining gaps toward Laravel/NestJS parity.
+No breaking changes — every addition is additive.
+
+### ORM
+
+- **Transactions & locking**: `transaction(cb)` (AsyncLocalStorage-scoped, nested via
+  SAVEPOINTs), manual `beginTransaction()/commit()/rollBack()`, and a `DB` facade.
+  `QueryBuilder.lockForUpdate()` / `sharedLock()` (MySQL/Postgres; no-op on SQLite).
+- **Relationship-aware querying**: `whereHas` / `orWhereHas` / `whereDoesntHave` /
+  `orWhereDoesntHave` via correlated `EXISTS` subqueries.
+- **Write helpers**: `upsert()`, `insertOrIgnore()`, and static `updateOrCreate()`,
+  `firstOrCreate()`, `firstOrNew()`, `updateOrInsert()`.
+- **Large datasets**: `chunk()`, `cursor()`, `lazy()`, `each()` (paged streaming).
+- **Query builder**: nested `where(cb)` groups, `where(col, val)` 2-arg shorthand,
+  `whereNotIn`, `orWhereIn`, `whereBetween/whereNotBetween`, `orWhereNull/orWhereNotNull`,
+  `whereIn(subquery)`, `min()`, `max()`, `exists()`, `remember()` query cache.
+- **Relations**: `morphedByMany()` (inverse polymorphic).
+- **Read replicas**: optional `read` config routes non-transactional SELECTs to a replica.
+
+### Drivers & infrastructure
+
+- **Cache**: `RedisCacheDriver` (implements `CacheDriver`).
+- **Queue**: `SyncDriver` + `DatabaseDriver`; `redis` connection is now auto-selected
+  from config when a client is provided.
+- **Session**: `RedisSessionDriver` + `DatabaseSessionDriver` for `core/Session`.
+- **Mail**: real dependency-free **SMTP** transport (implicit TLS/AUTH/MAIL/RCPT/DATA),
+  plus `ArrayDriver` (test fake), `MailgunDriver`, and `SesDriver`.
+- **Broadcasting**: fixed the fatal Pusher MD5 crash (pure-JS RFC-1321 MD5); added
+  `RedisBroadcastDriver` (pub/sub fan-out across nodes).
+- **Migrations**: `hasTable`/`hasColumn`/`reset()` are now driver-aware (no more
+  MySQL-only `SHOW`/`TRUNCATE` on SQLite/Postgres).
+
+### Security & auth
+
+- **Signed URLs**: `signUrl`, `signedRoute`, `temporarySignedUrl`, `hasValidSignature`,
+  `requireValidSignature` middleware (HMAC-SHA256, tamper-proof, expiring). Local storage
+  `temporaryUrl()` is now HMAC-signed (was a forgeable base64 token).
+- **Auth**: closed the residual cross-request `currentUser` leak — within a request the
+  user is read only from the per-request context. Added `setUser/login/logout/id`.
+- **Error handling**: production 5xx responses no longer leak internal error messages
+  (4xx client errors still surface their message).
+
+### CLI & testing
+
+- **CLI**: new `db:seed` command; `migrate fresh --seed`; fixed the `make:seeder`
+  template (registered a bad `defineSeeder(fn)` call — now `defineSeeder(name, fn)`).
+- **Fixed a dual-module bug**: `migrator` and `seeder` singletons now live on
+  `globalThis`, so migrations/seeders registered through the `canxjs` package junction
+  are visible to the CLI (previously "Nothing to migrate"/"No seeders to run").
+- **Testing**: `HttpTest.actingAs()`, persisting model factories (`factory(def, Model)`
+  → `.create()/.createMany()`), and real `DatabaseTest.assertHas/assertMissing/assertCount`
+  + transaction-based `refreshDatabase()`.
+- **DI**: `enableAutoWiring()` opt-in for zero-config constructor injection (reflect-metadata).
+
+### Storage
+
+- Streaming multipart uploads on the local disk (`putStream`) — large files no longer
+  buffered fully in memory.
+
 ## [1.7.0] - 2026-02-04
 
 ### Security Fixes
